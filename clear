@@ -1,0 +1,65 @@
+[33mcommit 6db6f5075d0445bcee56824544e70dcff4f752ce[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m)[m
+Author: hoangphuc082602 <hoangphuc0826@gmail.com>
+Date:   Mon Aug 3 14:33:27 2026 +0700
+
+    Update project
+
+ data/output/battle.parquet                      |   Bin [31m140732813[m -> [32m0[m bytes
+ data/output/battle_ability.parquet              |   Bin [31m110463268[m -> [32m0[m bytes
+ data/output/battle_damage.parquet               |   Bin [31m694840371[m -> [32m0[m bytes
+ data/output/battle_faint.parquet                |   Bin [31m155441444[m -> [32m0[m bytes
+ data/output/battle_field_state.parquet          |   Bin [31m302534096[m -> [32m0[m bytes
+ data/output/battle_ko.parquet                   |   Bin [31m268882868[m -> [32m0[m bytes
+ data/output/battle_leads.parquet                |   Bin [31m196143716[m -> [32m0[m bytes
+ data/output/battle_move.parquet                 |   Bin [31m661519452[m -> [32m0[m bytes
+ data/output/battle_players.parquet              |   Bin [31m160209497[m -> [32m0[m bytes
+ data/output/battle_status.parquet               |   Bin [31m63048772[m -> [32m0[m bytes
+ data/output/battle_switch.parquet               |   Bin [31m233618929[m -> [32m0[m bytes
+ data/output/battle_team_slot.parquet            |   Bin [31m167086225[m -> [32m0[m bytes
+ data/output/battle_tera.parquet                 |   Bin [31m95619587[m -> [32m0[m bytes
+ data/output/battle_weather.parquet              |   Bin [31m53873576[m -> [32m0[m bytes
+ data/output/parse_errors.csv                    |     1 [31m-[m
+ data/output/players.parquet                     |   Bin [31m61414330[m -> [32m0[m bytes
+ data/raw/ability_raw.csv                        |   312 [31m-[m
+ data/raw/data_damage_class.csv                  |     4 [31m-[m
+ data/raw/data_evo_method.csv                    |    17 [31m-[m
+ data/raw/data_type.csv                          |    20 [31m-[m
+ data/raw/evolution_raw.csv                      |   485 [31m-[m
+ data/raw/item_raw.csv                           |  2121 [31m-[m
+ data/raw/learn_method_raw.csv                   |    12 [31m-[m
+ data/raw/move_raw.csv                           |   920 [31m-[m
+ data/raw/pokemon_ability.csv                    |  2412 [31m--[m
+ data/raw/pokemon_moves.csv                      | 45970 [31m----------------------[m
+ data/raw/pokemon_nature_info.csv                |    26 [31m-[m
+ data/raw/pokemon_raw.csv                        |  1026 [31m-[m
+ data/raw/pokemon_species.csv                    |  1026 [31m-[m
+ data/raw/pokemon_type_raw.csv                   |  1552 [31m-[m
+ data/raw/stat_info.csv                          |    10 [31m-[m
+ data/raw/stats_raw.csv                          |  1351 [31m-[m
+ data/raw/type_effectiveness.csv                 |   121 [31m-[m
+ data/to_sql.py                                  |   119 [31m-[m
+ data/vgc_data/Gen 9 2V2 DOUBLES.parquet         |   Bin [31m9159646[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 CHAMPIONS VGC 2026.parquet  |   Bin [31m137269498[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 DOUBLES OU_part1.parquet    |   Bin [31m421187689[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 DOUBLES OU_part2.parquet    |   Bin [31m414096931[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 DOUBLES OU_part3.parquet    |   Bin [31m412569509[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 DOUBLES OU_part4.parquet    |   Bin [31m420497222[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 DOUBLES OU_part5.parquet    |   Bin [31m394022565[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 NATIONALDEX DOUBLES.parquet |   Bin [31m195406520[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 VGC 2023.parquet            |   Bin [31m2436427[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 VGC 2024_part1.parquet      |   Bin [31m322190965[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 VGC 2024_part2.parquet      |   Bin [31m311797303[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 VGC 2024_part3.parquet      |   Bin [31m309120453[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 VGC 2024_part4.parquet      |   Bin [31m250342821[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 VGC 2025_part1.parquet      |   Bin [31m305392825[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 VGC 2025_part2.parquet      |   Bin [31m331507057[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 VGC 2025_part3.parquet      |   Bin [31m376821667[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 VGC 2025_part4.parquet      |   Bin [31m326233061[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 VGC 2025_part5.parquet      |   Bin [31m327881334[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 VGC 2025_part6.parquet      |   Bin [31m108024414[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 VGC 2026_part1.parquet      |   Bin [31m343135222[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 VGC 2026_part2.parquet      |   Bin [31m341170069[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 VGC 2026_part3.parquet      |   Bin [31m331786616[m -> [32m0[m bytes
+ data/vgc_data/Gen 9 VGC 2026_part4.parquet      |   Bin [31m57794963[m -> [32m0[m bytes
+ data/vgc_data/inspect_parquet.py                |     8 [31m-[m
+ 58 files changed, 57513 deletions(-)
