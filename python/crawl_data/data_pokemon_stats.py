@@ -1,7 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 import requests
 import pandas as pd
-from sqlalchemy import create_engine
 
 session = requests.Session()
 
@@ -53,5 +52,5 @@ df = pd.DataFrame([r for r in results if r is not None])
 df.to_csv("data/raw/stats_raw.csv", index=False)
 
 # UPLOAD TO SQL database
-engine = create_engine("mysql+pymysql://root:123456@localhost/pokemon_analytics")
+from python.database.db_connection import engine
 df.to_sql(name="pokemon_stats", con=engine, if_exists="replace", index=False)

@@ -1,6 +1,5 @@
 import requests
 import pandas as pd
-from sqlalchemy import create_engine
 
 BASE_URL = "https://pokeapi.co/api/v2"
 
@@ -33,5 +32,5 @@ print(df.head())
 df.to_csv("data/raw/data_damage_class.csv",index=False)
 
 # UPLOAD TO SQL
-engine = create_engine("mysql+pymysql://root:123456@localhost/pokemon_analytics")
+from python.database.db_connection import engine
 df.to_sql(name="damage_classes",con=engine,if_exists="replace",index=False)

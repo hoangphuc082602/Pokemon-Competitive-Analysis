@@ -1,7 +1,6 @@
 import requests
 import pandas as pd
 import time
-from sqlalchemy import create_engine
 
 BASE_URL = "https://pokeapi.co/api/v2"
 
@@ -100,5 +99,5 @@ print(df.head())
 df.to_csv("data/raw/evolution_raw.csv",index=False)
 
 # UPLOAD TO MYSQL
-engine = create_engine("mysql+pymysql://root:123456@localhost/pokemon_analytics")
+from python.database.db_connection import engine
 df.to_sql(name="pokemon_evolution",con=engine,if_exists="replace",index=False)

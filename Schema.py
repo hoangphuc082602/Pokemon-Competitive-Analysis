@@ -1,5 +1,5 @@
-from sqlalchemy import create_engine, inspect, text
-engine = create_engine("mysql+pymysql://root:123456@localhost/pokemon_analytics")
+from sqlalchemy import inspect, text
+from python.database.db_connection import engine
 
 inspecter = inspect(engine)
 

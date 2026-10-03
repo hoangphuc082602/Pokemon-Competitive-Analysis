@@ -1,13 +1,7 @@
-from sqlalchemy import create_engine
+from sqlalchemy import text
+from .db_connection import engine
 
-username = "root"
-password = "123456"
-
-host = "localhost"
-database = "pokemon_analytics"
-
-engine = create_engine(
-    f"mysql+pymysql://{username}:{password}@{host}/{database}"
-)
+with engine.connect() as conn:
+    conn.execute(text("SELECT 1"))
 
 print("Connected successfully!")

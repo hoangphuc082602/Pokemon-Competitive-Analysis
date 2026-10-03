@@ -1,6 +1,5 @@
 import requests
 import pandas as pd
-from sqlalchemy import create_engine
 
 BASE_URL = "https://pokeapi.co/api/v2/pokemon/"
 
@@ -46,5 +45,5 @@ print(df)
 df.to_csv("data/raw/pokemon_type_raw.csv",index=False)
 
 # Upload to SQL
-engine = create_engine("mysql+pymysql://root:123456@localhost/pokemon_analytics")
+from python.database.db_connection import engine
 df.to_sql(name="pokemon_types",con=engine,if_exists="replace",index=False)

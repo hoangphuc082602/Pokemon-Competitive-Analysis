@@ -1,5 +1,4 @@
 import pandas as pd
-from sqlalchemy import create_engine
 import requests
 import time
 
@@ -41,5 +40,5 @@ print(df_species.head())
 df_species.to_csv("data/raw/pokemon_species.csv",index=False)
 
 # UPLOAD TO SQL
-engine = create_engine("mysql+pymysql://root:123456@localhost/pokemon_analytics")
+from python.database.db_connection import engine
 df_species.to_sql(name="pokemon_species",con=engine,if_exists="replace",index=False)

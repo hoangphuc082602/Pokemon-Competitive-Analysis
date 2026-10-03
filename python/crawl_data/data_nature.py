@@ -1,6 +1,5 @@
 import requests
 import pandas as pd
-from sqlalchemy import create_engine
 
 BASE_URL = "https://pokeapi.co/api/v2"
 
@@ -57,5 +56,5 @@ print(df_nature_info.head())
 df_nature_info.to_csv("data/raw/pokemon_nature_info.csv",index=False)
 
 # UPLOAD TO SQL
-engine = create_engine("mysql+pymysql://root:123456@localhost/pokemon_analytics")
+from python.database.db_connection import engine
 df_nature_info.to_sql(name="nature",con=engine,if_exists="replace",index=False)
