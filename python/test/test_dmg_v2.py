@@ -120,13 +120,17 @@ def test_random_roll_stays_within_min_max(type_chart_df, battler):
         assert r["min_damage"] <= r["damage"] <= r["max_damage"]
 
 
-# ---------- KNOWN ISSUE ----------
-@pytest.mark.xfail(
-    strict=True,
-    reason="STAB đang xét theo type gốc của move; move bị -ate đổi hệ (Pixilate) phải được STAB nếu user cùng hệ",
-)
+# ---------- STAB theo hệ SAU khi ability đổi hệ ----------
 def test_pixilate_sylveon_gets_stab_on_converted_move(type_chart_df, battler, fixed_roll):
     fixed_roll(1.0)
     attacker = battler(["fairy"], ability="pixilate")
     result = calculate_damage(attacker, battler(["dragon"]), move("normal"), type_chart_df)
-    assert result["stab"] == 1.5
+    assert result["stab"] == 1.5          # normal -> fairy, attacker là hệ fairy
+    assert result["type_modifier"] == 2.0  # fairy vs dragon
+
+
+def test_pixilate_without_matching_type_has_no_stab(type_chart_df, battler, fixed_roll):
+    fixed_roll(1.0)
+    attacker = battler(["normal"], ability="pixilate")   # move thành fairy, nhưng user không phải hệ fairy
+    result = calculate_damage(attacker, battler(["dragon"]), move("normal"), type_chart_df)
+    assert result["stab"] == 1

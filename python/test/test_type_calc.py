@@ -94,23 +94,18 @@ def test_pixilate_does_not_change_non_normal_move(type_chart_df, battler):
     assert get_actual_move_type(attacker, {"type": "fire"}) == "fire"
 
 
-# ---------- KNOWN ISSUES: cơ chế game đang tính chưa đúng ----------
-# Hai test dưới đây mô tả hành vi ĐÚNG theo luật game; code hiện tại chưa đáp ứng.
-# strict=True: khi bạn sửa code, test tự "XPASS" và báo lỗi để nhắc bỏ marker xfail.
-
-@pytest.mark.xfail(strict=True, reason="Normalize đổi MỌI move thành Normal, code mới chỉ đổi move vốn là Normal")
+# ---------- Cơ chế đã sửa (trước đây là xfail) ----------
 def test_normalize_converts_any_move_to_normal(battler):
     assert get_actual_move_type(battler(["normal"], ability="normalize"), {"type": "fire"}) == "normal"
 
 
-@pytest.mark.xfail(strict=True, reason="Wind Rider chỉ miễn nhiễm move 'gió' (Tailwind, Hurricane...), không miễn nhiễm cả hệ Flying")
 def test_wind_rider_does_not_block_all_flying_moves(type_chart_df, battler):
+    # Wind Rider chỉ miễn nhiễm move "gió" (Tailwind, Hurricane...), không miễn nhiễm cả hệ Flying.
     defender = battler(["grass"], ability="wind-rider")
-    # flying vs grass = 2x; Wind Rider không được biến nó thành 0
     assert calc(type_chart_df, battler(["flying"]), defender, "flying") == 2.0
 
 
-@pytest.mark.xfail(strict=True, reason="Chưa chuẩn hóa tên ability: 'Flash Fire' / 'flash fire' không khớp slug 'flash-fire'")
-def test_ability_display_name_matches_slug(type_chart_df, battler):
-    defender = battler(["grass"], ability="Flash Fire")
+@pytest.mark.parametrize("name", ["flash-fire", "Flash Fire", "flash fire", "FLASH_FIRE", " flash-fire "])
+def test_ability_name_formats_are_normalised(type_chart_df, battler, name):
+    defender = battler(["grass"], ability=name)
     assert calc(type_chart_df, battler(["fire"]), defender, "fire") == 0.0

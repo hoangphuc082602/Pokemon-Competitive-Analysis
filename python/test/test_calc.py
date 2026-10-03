@@ -61,3 +61,15 @@ def test_final_stats_flutter_mane_timid():
         "spdef": 155,   # (270+31)*50//100 = 150, +5
         "spe": 205,     # 187 * 1.1 = 205.7 -> 205
     }
+
+
+def test_final_stats_garchomp_jolly():
+    # Scenario của test_calc.py cũ (gọi hàm không còn tồn tại `all_stats_calc`), viết lại theo API hiện tại.
+    base = {"hp": 108, "atk": 130, "def": 95, "spatk": 80, "spdef": 85, "spe": 102}
+    ivs = dict.fromkeys(base, 31)
+    evs = {"hp": 0, "atk": 252, "def": 0, "spatk": 0, "spdef": 4, "spe": 252}
+    mods = {"atk": 1.0, "def": 1.0, "spatk": 0.9, "spdef": 1.0, "spe": 1.1}
+
+    assert calculate_final_stats(base, ivs, evs, 50, mods) == {
+        "hp": 183, "atk": 182, "def": 115, "spatk": 90, "spdef": 106, "spe": 169,
+    }

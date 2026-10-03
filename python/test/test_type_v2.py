@@ -85,3 +85,17 @@ def test_team_defense_summary(team_report):
 def test_team_defense_rejects_non_list(type_chart_df, pokemon_df):
     with pytest.raises(AssertionError):
         analyze_team_defense(type_chart_df, pokemon_df, mon("pelipper"))
+
+
+@pytest.mark.parametrize("ability", ["levitate", "Levitate", "LEVITATE"])
+def test_defender_ability_name_formats(type_chart_df, pokemon_df, ability):
+    assert calculate_defensive_multiplier(
+        type_chart_df, pokemon_df, "ground", mon("rotom-wash", ability)
+    ) == 0.0
+
+
+def test_defender_ability_with_space_in_display_name(type_chart_df, pokemon_df):
+    # "Thick Fat" (tên hiển thị) phải khớp slug "thick-fat": fire vs fire/dark = 0.5, thêm 0.5
+    assert calculate_defensive_multiplier(
+        type_chart_df, pokemon_df, "fire", mon("incineroar", "Thick Fat")
+    ) == 0.25

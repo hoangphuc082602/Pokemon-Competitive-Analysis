@@ -2,18 +2,6 @@
 import pandas as pd
 import pytest
 
-# Script kiểu cũ (print, kết nối MySQL ngay khi import). KHÔNG xóa, chỉ tạm bỏ khỏi pytest
-# cho đến khi viết lại (sprint task #3b) hoặc xóa có kiểm chứng (task #6).
-collect_ignore = [
-    "main_test.py",
-    "test_calc.py",
-    "test_team_analyzer.py",
-    "test_atk_balance.py",
-    "test_role_label.py",
-    "test_team_builder.py",
-]
-
-
 @pytest.fixture
 def type_chart_df():
     """Type chart tối thiểu, đủ cho các case trong test (cột giống bảng type_effectiveness)."""
@@ -50,6 +38,22 @@ def nature_df():
             ("hardy", None, None),  # nature trung tính
         ],
         columns=["nature_name", "increased_stat", "decreased_stat"],
+    )
+
+
+@pytest.fixture
+def moves_df():
+    return pd.DataFrame(
+        [
+            ("thunderbolt", "electric", "special"),
+            ("hydro-pump", "water", "special"),
+            ("earthquake", "ground", "physical"),
+            ("hyper-voice", "normal", "special"),
+            ("flamethrower", "fire", "special"),
+            ("protect", "normal", "status"),
+            ("close-combat", "fighting", "physical"),
+        ],
+        columns=["move_name", "type", "damage_class"],
     )
 
 

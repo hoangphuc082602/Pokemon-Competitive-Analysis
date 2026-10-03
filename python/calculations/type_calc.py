@@ -10,8 +10,7 @@ DEFENSIVE_ABILITY_IMMUNITIES = {
     "storm-drain": ["water"],
     "dry-skin": ["water"],
     "earth-eater": ["ground"],
-    "well-baked-body": ["fire"],
-    "wind-rider": ["flying"]
+    "well-baked-body": ["fire"]
 }
 
 DEFENSIVE_ABILITY_RESISTANCES = {
@@ -44,6 +43,11 @@ OFFENSIVE_TYPE_OVERRIDE = {
     "galvanize": "electric"
 }
 
+def normalize_ability_name(ability):
+    """'Flash Fire' / 'flash fire' / 'flash_fire' -> 'flash-fire' (slug dùng trong các bảng bên trên)."""
+    return str(ability or "").strip().lower().replace(" ", "-").replace("_", "-")
+
+
 # BASE TYPE LOOKUP
 def get_type_multiplier(type_chart_df,attack_type,defense_type):
     result = type_chart_df[
@@ -63,10 +67,13 @@ def get_actual_move_type(attacker,move):
         move["type"]
         .lower()
     )
-    ability = (
-        attacker["ability"]
-        .lower()
-    )
+    ability = normalize_ability_name(attacker["ability"])
+
+    # Normalize đổi MỌI move thành Normal
+    if ability == "normalize":
+        return "normal"
+
+    # -ate abilities chỉ đổi move vốn là Normal
     if (move_type == "normal"
         and
         ability in OFFENSIVE_TYPE_OVERRIDE):
@@ -80,8 +87,7 @@ def bypass_immunity(
     defense_type
 ):
     ability = (
-        attacker["ability"]
-        .lower()
+        normalize_ability_name(attacker["ability"])
     )
     bypass_map = (
         OFFENSIVE_ABILITY_BYPASS
@@ -105,8 +111,7 @@ def apply_defensive_immunity(
     defender
 ):
     ability = (
-        defender["ability"]
-        .lower()
+        normalize_ability_name(defender["ability"])
     )
     immune_types = (
         DEFENSIVE_ABILITY_IMMUNITIES
@@ -126,8 +131,7 @@ def apply_defensive_resistance(
     defender
 ):
     ability = (
-        defender["ability"]
-        .lower()
+        normalize_ability_name(defender["ability"])
     )
     resist_map = (
         DEFENSIVE_ABILITY_RESISTANCES
@@ -158,8 +162,7 @@ def calculate_type_multiplier(
         )
     )
     attacker_ability = (
-        attacker["ability"]
-        .lower()
+        normalize_ability_name(attacker["ability"])
     )
     multiplier = 1.0
 

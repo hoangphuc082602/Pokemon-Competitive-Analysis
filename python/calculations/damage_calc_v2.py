@@ -1,7 +1,8 @@
 import math
 import random
 from python.calculations.type_calc import (
-    calculate_type_multiplier
+    calculate_type_multiplier,
+    get_actual_move_type
 )
 from python.calculations.get_battle_stats import (
     get_battle_stats
@@ -45,7 +46,7 @@ def calculate_damage(
     # STAB
     stab_modifier = get_stab_modifier(
         attacker,
-        move
+        {**move, "type": get_actual_move_type(attacker, move)}
     )
 
     # TYPE
