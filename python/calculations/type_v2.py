@@ -1,58 +1,11 @@
 import pandas as pd
 
-# =====================================================
-# DEFENSIVE ABILITIES
-# =====================================================
-
-DEFENSIVE_ABILITY_IMMUNITIES = {
-    "levitate": ["ground"],
-    "flash-fire": ["fire"],
-    "water-absorb": ["water"],
-    "volt-absorb": ["electric"],
-    "lightning-rod": ["electric"],
-    "motor-drive": ["electric"],
-    "sap-sipper": ["grass"],
-    "storm-drain": ["water"],
-    "dry-skin": ["water"],
-    "earth-eater": ["ground"],
-    "well-baked-body": ["fire"],
-    "wind-rider": ["flying"]
-}
-
-DEFENSIVE_ABILITY_RESISTANCES = {
-    "thick-fat": {
-        "fire": 0.5,
-        "ice": 0.5
-    },
-    "heatproof": {
-        "fire": 0.5
-    },
-    "purifying-salt": {
-        "ghost": 0.5
-    }
-}
-
-# =====================================================
-# OFFENSIVE ABILITIES
-# =====================================================
-
-OFFENSIVE_ABILITY_BYPASS = {
-
-    "scrappy": {
-        "normal": ["ghost"],
-        "fighting": ["ghost"]
-    },
-
-    "mold-breaker": {}
-}
-
-OFFENSIVE_TYPE_OVERRIDE = {
-    "normalize": "normal",
-    "pixilate": "fairy",
-    "refrigerate": "ice",
-    "aerilate": "flying",
-    "galvanize": "electric"
-}
+from python.calculations.type_calc import (
+    DEFENSIVE_ABILITY_IMMUNITIES,
+    DEFENSIVE_ABILITY_RESISTANCES,
+    OFFENSIVE_TYPE_OVERRIDE,
+    normalize_ability_name,
+)
 
 # =====================================================
 # SHARED HELPERS
@@ -121,11 +74,7 @@ def calculate_defensive_multiplier(
         defender["pokemon"]
     )
 
-    ability = (
-        defender
-        .get("ability", "")
-        .lower()
-    )
+    ability = normalize_ability_name(defender.get("ability", ""))
 
     # Ability Immunity
 
@@ -304,14 +253,7 @@ def resolve_move_types(
     pokemon
 ):
 
-    ability = (
-        pokemon
-        .get(
-            "ability",
-            ""
-        )
-        .lower()
-    )
+    ability = normalize_ability_name(pokemon.get("ability", ""))
     override_type = (
         OFFENSIVE_TYPE_OVERRIDE
         .get(

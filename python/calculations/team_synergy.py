@@ -1,4 +1,4 @@
-from calculations.role_label import (label_role)
+from python.calculations.role_label import (label_role)
 
 def analyze_role_distribution(team):
 

@@ -1,118 +1,38 @@
-import json
-from python.database.type_effectiveness_loader import (
-    load_type_effectiveness
-)
-from python.database.pokemon_loader import (
-    load_all_pokemon_stats
-)
-from python.database.moves_loader import (
-    load_all_moves
-)
-from python.database.natures_loader import (
-    load_all_natures
-)
-from python.models.team_builder import (
-    build_pokemon
-)
-from python.calculations.role_label import (
-    label_role
-)
-# LOAD DATA
-type_chart_df = load_type_effectiveness()
-pokemon_df = load_all_pokemon_stats()
-moves_df = load_all_moves()
-nature_df = load_all_natures()
+import pytest
 
-# IV TEMPLATE
-perfect_ivs = {
-    "hp": 31,
-    "atk": 31,
-    "def": 31,
-    "spatk": 31,
-    "spdef": 31,
-    "spe": 31
-}
+from python.calculations.role_label import label_role
 
-# BUILD TEAM
-charizard = build_pokemon(
-    pokemon_df = pokemon_df,
-    nature_df = nature_df,
-    pokemon_name = "charizard",
-    level = 50,
-    nature = "timid",
-    ability = "blaze",
-    item = "charizardite-y",
-    moves = [
-        "flamethrower",
-        "air-slash",
-        "focus-blast",
-        "solar-beam"
-    ],
-    ivs = perfect_ivs,
-    evs = {
-        "hp": 0,
-        "atk": 0,
-        "def": 4,
-        "spatk": 252,
-        "spdef": 0,
-        "spe": 252
-    }
-)
 
-venusaur = build_pokemon(
-    pokemon_df = pokemon_df,
-    nature_df = nature_df,
-    pokemon_name = "venusaur",
-    level = 50,
-    nature = "modest",
-    ability = "chlorophyll",
-    item = "life-orb",
-    moves = [
-        "sludge-bomb",
-        "giga-drain",
-        "earth-power",
-        "sleep-powder"
-    ],
-    ivs = perfect_ivs,
-    evs = {
-        "hp": 4,
-        "atk": 0,
-        "def": 0,
-        "spatk": 252,
-        "spdef": 0,
-        "spe": 252
-    }
-)
+def mon(atk=100, spatk=100, defense=100, spdef=100, spe=100):
+    return {"stats": {"atk": atk, "spatk": spatk, "def": defense, "spdef": spdef, "spe": spe}}
 
-garchomp = build_pokemon(
-    pokemon_df = pokemon_df,
-    nature_df = nature_df,
-    pokemon_name = "garchomp",
-    level = 50,
-    nature = "jolly",
-    ability = "rough-skin",
-    item = "rocky-helmet",
-    moves = [
-        "earthquake",
-        "dragon-claw",
-        "stone-edge",
-        "fire-fang"
-    ],
-    ivs = perfect_ivs,
-    evs = {
-        "hp": 0,
-        "atk": 252,
-        "def": 0,
-        "spatk": 0,
-        "spdef": 4,
-        "spe": 252
-    }
-)
-team = [
-    charizard,
-    venusaur,
-    garchomp
-]
 
-for pokemon in team:
-    print(f"{pokemon['name']}: {label_role(pokemon)}")
+def test_physical_sweeper():
+    assert label_role(mon(atk=170, spe=150)) == "physical_sweeper"
+
+
+def test_special_sweeper():
+    assert label_role(mon(spatk=170, spe=150)) == "special_sweeper"
+
+
+@pytest.mark.parametrize("stats", [dict(atk=169, spe=150), dict(atk=170, spe=149)])
+def test_sweeper_thresholds_are_inclusive_boundaries(stats):
+    assert label_role(mon(**stats)) == "balanced"
+
+
+@pytest.mark.parametrize("stats", [dict(defense=150), dict(spdef=150)])
+def test_wall(stats):
+    assert label_role(mon(**stats)) == "wall"
+
+
+def test_balanced_default():
+    assert label_role(mon()) == "balanced"
+
+
+def test_sweeper_takes_priority_over_wall():
+    assert label_role(mon(atk=180, spe=160, defense=160)) == "physical_sweeper"
+
+
+def test_physical_checked_before_special():
+    # Hành vi hiện tại: đủ điều kiện cả hai thì trả về physical
+    assert label_role(mon(atk=170, spatk=170, spe=150)) == "physical_sweeper"

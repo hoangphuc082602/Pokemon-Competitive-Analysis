@@ -117,7 +117,7 @@ TABLE_DTYPES: dict[str, dict[str, str]] = {
     },
     "players": {"username": "string"},
     "battle_players": {
-        "battle_id": "string", "user_name": "string", "side": "string",
+        "battle_id": "string", "username": "string", "side": "string",
         "rating_before": "Int32", "rating_after": "Int32", "result": "string",
     },
     "battle_team_slot": {
