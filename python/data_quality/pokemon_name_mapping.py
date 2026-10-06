@@ -99,9 +99,11 @@ def build_mapping(counts: Counter, master: pd.DataFrame, overrides: dict[str, st
 
 def _suggest(name: str, slug_to_row: dict, limit: int = 3) -> list[str]:
     slug = normalize_name(name)
+    base = slug.split("-")[0]
     prefixed = sorted(s for s in slug_to_row if s.startswith(slug + "-"))      # 'mimikyu' -> 'mimikyu-...'
     fuzzy = difflib.get_close_matches(slug, slug_to_row, n=limit, cutoff=0.6)
-    return list(dict.fromkeys(prefixed + fuzzy))[:limit]
+    same_base = sorted(s for s in slug_to_row if s == base or s.startswith(base + "-"))
+    return list(dict.fromkeys(prefixed + fuzzy + same_base))[:limit]
 
 
 def coverage(mapping: pd.DataFrame, unmatched: pd.DataFrame) -> dict:
