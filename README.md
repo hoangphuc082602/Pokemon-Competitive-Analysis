@@ -1,6 +1,6 @@
 # Pokémon Competitive Analytics (VGC)
 
-[![CI](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/actions/workflows/ci.yml)
+[![CI](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/actions/workflows/CI.yml/badge.svg)](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/actions/workflows/CI.yml)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![Tests](https://img.shields.io/badge/tests-99%20passing-brightgreen)
 
