@@ -92,7 +92,7 @@ Python · pandas · NumPy · PyArrow / Parquet · SQLAlchemy + PyMySQL · MySQL 
 │   ├── recommendation/    # rule-based role recommender (early prototype)
 │   ├── ml/                # team feature helpers
 │   ├── untils/            # shared constants
-│   └── test/              # pytest suite (99 tests)
+│   └── test/              # pytest suite
 ├── parser/                # battle-log state machine and the batch runner
 ├── src/                   # Word2Vec prototype (team generator, training, similarity query)
 ├── streamlit_app/         # app.py and pages/

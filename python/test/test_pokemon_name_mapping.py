@@ -61,7 +61,7 @@ def test_override_wins_and_is_marked(master):
     mapping, unmatched = build_mapping(Counter({"Indeedee-F": 3}), master, {"Indeedee-F": "indeedee-female"})
     assert unmatched.empty
     assert mapping.iloc[0].to_dict() == {
-        "showdown_name": "Indeedee-F", "poke_id": 4, "pokemon": "indeedee-female", "method": "override", "n_rows": 3,
+        "showdown_name": "Indeedee-F", "poke_id": 4, "pokemon": "indeedee-female", "species_id": None, "method": "override", "form_status": "known", "n_rows": 3,
     }
 
 
@@ -93,7 +93,7 @@ def test_ambiguous_master_fails_loudly():
 def test_coverage_is_weighted_by_rows(master):
     mapping, unmatched = build_mapping(Counter({"Flutter Mane": 99, "Mimikyu": 1}), master)
     assert coverage(mapping, unmatched) == {
-        "rows_total": 100, "rows_matched_pct": 99.0, "names_total": 2, "names_matched_pct": 50.0,
+        "rows_total": 100, "rows_matched_pct": 99.0, "rows_species_only_pct": 0.0, "names_total": 2, "names_matched_pct": 50.0, "names_species_only": 0.0,
     }
 
 

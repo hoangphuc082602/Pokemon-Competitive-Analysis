@@ -39,11 +39,16 @@ import pandas as pd
 
 # ── parser must live next to this file (or be on PYTHONPATH) ──────────────────
 try:
-    from parser import BatchParser, InMemoryDB, _generate_battle_id, BattleLogParser
-except ImportError as exc:
-    sys.exit(
-        f"[FATAL] Cannot import parser.py – make sure it is in the same directory.\n{exc}"
-    )
+    # imported as a package (tests, `python -m parser.runner`)
+    from parser.parser import BatchParser, InMemoryDB, _generate_battle_id, BattleLogParser
+except ImportError:
+    try:
+        # run as a script (`python parser/runner.py`): `parser` is the sibling parser.py
+        from parser import BatchParser, InMemoryDB, _generate_battle_id, BattleLogParser
+    except ImportError as exc:
+        sys.exit(
+            f"[FATAL] Cannot import parser.py – make sure it is in the same directory.\n{exc}"
+        )
 
 # ── optional pyarrow (graceful degradation to CSV if absent) ─────────────────
 try:
@@ -690,4 +695,4 @@ if __name__ == "__main__":
         batch_size=args.batch,
         workers=args.workers,
         dry_run=args.dry_run,
-    ) 
+    )
