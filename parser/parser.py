@@ -85,6 +85,9 @@ class BattleTeamSlot:
     slot_no: int = 0
     pokemon_name: str = ""
     is_lead: bool = False
+    species_observed: str = ""      # real species/form seen in battle for this slot (resolves 'Urshifu-*')
+    form_status: str = "listed"     # listed | observed | ambiguous | unobserved
+    was_sent_out: bool = False      # the Pokemon entered the field at least once
 
 
 @dataclass
@@ -92,6 +95,7 @@ class BattleLeadRecord:
     battle_id: str = ""
     username: str = ""
     pokemon_name: str = ""
+    species: str = ""             # real species/form from |switch| details (pokemon_name is the nickname)
     lead_slot: int = 0
 
 
@@ -101,6 +105,7 @@ class BattleMoveRecord:
     turn_no: int = 0
     username: str = ""          # resolved to player_id during ingest
     pokemon_name: str = ""
+    species: str = ""             # real species/form from |switch| details (pokemon_name is the nickname)
     move_name: str = ""
     target_name: str = ""
     success: bool = True
@@ -112,6 +117,8 @@ class BattleDamageRecord:
     turn_no: int = 0
     attacker_pokemon: str = ""
     defender_pokemon: str = ""
+    attacker_species: str = ""
+    defender_species: str = ""
     move_name: str = ""
     hp_before: float = 0.0
     hp_after: float = 0.0
@@ -124,6 +131,8 @@ class BattleKORecord:
     turn_no: int = 0
     killer_pokemon: str = ""
     victim_pokemon: str = ""
+    killer_species: str = ""
+    victim_species: str = ""
     move_name: str = ""
     ko_type: str = "MOVE"
 
@@ -133,6 +142,7 @@ class BattleFaintRecord:
     battle_id: str = ""
     turn_no: int = 0
     pokemon_name: str = ""
+    species: str = ""             # real species/form from |switch| details (pokemon_name is the nickname)
 
 
 @dataclass
@@ -141,6 +151,7 @@ class BattleSwitchRecord:
     turn_no: int = 0
     username: str = ""
     pokemon_name: str = ""
+    species: str = ""             # real species/form from |switch| details (pokemon_name is the nickname)
 
 
 @dataclass
@@ -156,6 +167,7 @@ class BattleStatusRecord:
     battle_id: str = ""
     turn_no: int = 0
     pokemon_name: str = ""
+    species: str = ""             # real species/form from |switch| details (pokemon_name is the nickname)
     status_code: str = ""
 
 
@@ -164,6 +176,7 @@ class BattleAbilityRecord:
     battle_id: str = ""
     turn_no: int = 0
     pokemon_name: str = ""
+    species: str = ""             # real species/form from |switch| details (pokemon_name is the nickname)
     ability_name: str = ""
 
 
@@ -172,6 +185,7 @@ class BattleTeraRecord:
     battle_id: str = ""
     turn_no: int = 0
     pokemon_name: str = ""
+    species: str = ""             # real species/form from |switch| details (pokemon_name is the nickname)
     tera_type: str = ""
 
 
@@ -216,6 +230,20 @@ def _strip_pokemon_name(raw: str) -> str:
     # Remove common trailing details like ', M', ', F', ', shiny'
     raw = re.sub(r",\s*(M|F|shiny|shiny M|shiny F)$", "", raw, flags=re.IGNORECASE)
     return raw.strip()
+
+
+def _species_from_details(details: str) -> str:
+    """'Urshifu-Rapid-Strike, L50, M' -> 'Urshifu-Rapid-Strike' (the form, not the nickname)."""
+    return details.split(",", 1)[0].strip()
+
+
+def _match_species(preview_name: str, species_pool) -> list[str]:
+    """Species from ``species_pool`` matching a team-preview name; 'Urshifu-*' matches Urshifu and Urshifu-<form>."""
+    n = preview_name.lower()
+    if n.endswith("-*"):
+        base = n[:-2]
+        return sorted(sp for sp in species_pool if sp.lower() == base or sp.lower().startswith(base + "-"))
+    return sorted(sp for sp in species_pool if sp.lower() == n)
 
 
 def _parse_hp(hp_str: str) -> Optional[float]:
@@ -287,6 +315,10 @@ class BattleLogParser:
         self._poke_preview: dict[str, list[str]] = {"p1": [], "p2": []}
         # Active pokemon on field  {p1a: name, p1b: name, p2a: name, p2b: name}
         self._active: dict[str, str] = {}
+        self._active_species: dict[str, str] = {}                 # slot -> species currently on the field
+        self._name_species: dict[tuple[str, str], str] = {}
+        self._switched_species: dict[str, set[str]] = {"p1": set(), "p2": set()}   # species that entered the field
+        self._lead_slots_seen: set[str] = set()                   # slots already filled by an opening lead
         # Last move context for linking damage/KO
         self._last_move: dict[str, str] = {}   # slot -> move_name
         self._last_move_target: dict[str, str] = {}  # slot -> target_slot
@@ -368,15 +400,18 @@ class BattleLogParser:
             if len(parts) < 4:
                 return
             side = parts[2]           # p1 / p2
-            username = parts[3]
+            username = parts[3].strip()
+            if not username:
+                return                # '|player|p1|' = the player left
+            known = next((b for b in self._result.battle_players if b.side == side), None)
+            if known:                 # re-join / avatar change: keep one row per side
+                if known.rating_before is None:
+                    known.rating_before = self._player_rating(parts)
+                return
             self._side_to_name[side] = username
             self._name_to_side[username] = side
 
-            rating_val = None
-            if len(parts) > 5 and parts[5].strip().lstrip("-").isdigit():
-                rating_val = int(parts[5])
-            elif len(parts) > 4 and parts[4].strip().lstrip("-").isdigit():
-                rating_val = int(parts[4])
+            rating_val = self._player_rating(parts)
 
             bp = BattlePlayerRecord(
                 battle_id=self._battle_id,
@@ -432,6 +467,8 @@ class BattleLogParser:
         dispatch = {
             "switch":   self._handle_switch,
             "drag":     self._handle_switch,   # drag == involuntary switch
+            "detailschange": self._handle_details_change,   # permanent form change (Mega, Primal, ...)
+            "replace":  self._handle_details_change,        # Illusion ends
             "move":     self._handle_move,
             "-damage":  self._handle_damage,
             "-heal":    self._handle_heal,
@@ -458,6 +495,11 @@ class BattleLogParser:
 
         # Update active roster
         self._active[side_slot] = pokemon_name
+        species = _species_from_details(parts[3])
+        self._active_species[side_slot] = species
+        self._name_species[(side, pokemon_name)] = species
+        if side in self._switched_species:
+            self._switched_species[side].add(species)
 
         # HP
         if len(parts) > 4:
@@ -474,12 +516,16 @@ class BattleLogParser:
             or (self._state == ParserState.IN_BATTLE and self._current_turn == 0)
         )
 
+        if is_opening_lead and side_slot in self._lead_slots_seen:
+            is_opening_lead = False   # turn-0 replacement (e.g. Eject Pack after Intimidate) is a switch, not a lead
         if is_opening_lead:
+            self._lead_slots_seen.add(side_slot)
             username = self._side_to_name.get(side, "")
             self._result.leads.append(BattleLeadRecord(
                 battle_id=self._battle_id,
                 username=username,
                 pokemon_name=pokemon_name,
+                species=species,
                 lead_slot=lead_slot,
             ))
             return  # opening deployment is not a mid-game switch
@@ -491,7 +537,33 @@ class BattleLogParser:
             turn_no=self._current_turn,
             username=username,
             pokemon_name=pokemon_name,
+            species=species,
         ))
+
+    @staticmethod
+    def _player_rating(parts: list[str]) -> Optional[int]:
+        # |player|p1|NAME|AVATAR|RATING : parts[4] is the avatar id, never a rating
+        if len(parts) > 5 and parts[5].strip().lstrip("-").isdigit():
+            return int(parts[5])
+        return None
+
+    # --- details change ---
+    def _handle_details_change(self, parts: list[str]) -> None:
+        # |detailschange|p1a: Charizard|Charizard-Mega-X, L50, M
+        if len(parts) < 4:
+            return
+        side_slot = parts[2].split(":")[0].strip()
+        species = _species_from_details(parts[3])
+        self._active_species[side_slot] = species
+        self._name_species[(_side_from_slot(side_slot), _strip_pokemon_name(parts[2]))] = species
+
+    def _species_of(self, raw: str) -> str:
+        """Species for an ident like 'p1a: Name': by active slot first, then by (side, nickname)."""
+        side_slot = raw.split(":")[0].strip()
+        name = _strip_pokemon_name(raw)
+        if self._active.get(side_slot) == name and side_slot in self._active_species:
+            return self._active_species[side_slot]
+        return self._name_species.get((_side_from_slot(side_slot), name), "")
 
     # --- move ---
     def _handle_move(self, parts: list[str]) -> None:
@@ -520,6 +592,7 @@ class BattleLogParser:
             turn_no=self._current_turn,
             username=username,
             pokemon_name=pokemon_name,
+            species=self._species_of(slot_raw),
             move_name=move_name,
             target_name=target_name,
             success=success,
@@ -549,6 +622,7 @@ class BattleLogParser:
         # Determine attacker + move
         # Check [of] tag to find attacker slot
         attacker = ""
+        attacker_species = ""
         move_name = ""
         source_tag = ""
         for p in parts[4:]:
@@ -556,6 +630,7 @@ class BattleLogParser:
             if p.startswith("[of]"):
                 atk_raw = p.replace("[of]", "").strip()
                 attacker = _strip_pokemon_name(atk_raw)
+                attacker_species = self._species_of(atk_raw)
             if p.startswith("[from]"):
                 source_tag = p.replace("[from]", "").strip()
 
@@ -565,6 +640,7 @@ class BattleLogParser:
             for slot_key, mv in self._last_move.items():
                 if slot_key.startswith(opp_side):
                     attacker = self._active.get(slot_key, "")
+                    attacker_species = self._active_species.get(slot_key, "")
                     move_name = mv
                     break
 
@@ -582,6 +658,8 @@ class BattleLogParser:
             turn_no=self._current_turn,
             attacker_pokemon=attacker,
             defender_pokemon=defender,
+            attacker_species=attacker_species,
+            defender_species=self._species_of(slot_raw),
             move_name=move_name,
             hp_before=hp_before,
             hp_after=hp_after,
@@ -617,6 +695,7 @@ class BattleLogParser:
             battle_id=self._battle_id,
             turn_no=self._current_turn,
             pokemon_name=pokemon_name,
+            species=self._species_of(slot_raw),
         ))
 
         # Resolve KO from pending damage
@@ -633,6 +712,8 @@ class BattleLogParser:
                 turn_no=self._current_turn,
                 killer_pokemon=pending.attacker_pokemon,
                 victim_pokemon=pokemon_name,
+                killer_species=pending.attacker_species,
+                victim_species=pending.defender_species,
                 move_name=pending.move_name,
                 ko_type=ko_type,
             ))
@@ -673,6 +754,7 @@ class BattleLogParser:
             battle_id=self._battle_id,
             turn_no=self._current_turn,
             pokemon_name=pokemon_name,
+            species=self._species_of(parts[2]),
             status_code=status_code,
         ))
 
@@ -687,6 +769,7 @@ class BattleLogParser:
             battle_id=self._battle_id,
             turn_no=self._current_turn,
             pokemon_name=pokemon_name,
+            species=self._species_of(parts[2]),
             ability_name=ability_name,
         ))
 
@@ -701,6 +784,7 @@ class BattleLogParser:
             battle_id=self._battle_id,
             turn_no=self._current_turn,
             pokemon_name=pokemon_name,
+            species=self._species_of(parts[2]),
             tera_type=tera_type,
         ))
 
@@ -750,21 +834,33 @@ class BattleLogParser:
         if self._rating:
             b.rating = self._rating
 
-        # Build team slots from preview data
-        lead_names: dict[str, set[str]] = {"p1": set(), "p2": set()}
+        # Build team slots from preview data. Match by species (not nickname) so nicknamed and
+        # form-masked Pokemon ('Urshifu-*') are recognised as leads / sent out.
+        lead_species: dict[str, set[str]] = {"p1": set(), "p2": set()}
         for lead in self._result.leads:
             side = self._name_to_side.get(lead.username, "")
-            if side:
-                lead_names[side].add(lead.pokemon_name)
+            if side and lead.species:
+                lead_species[side].add(lead.species)
 
         for side, pokemons in self._poke_preview.items():
             for idx, name in enumerate(pokemons, start=1):
+                sent = _match_species(name, self._switched_species.get(side, set()))
+                masked = name.endswith("-*")
+                if not masked:
+                    status, observed = "listed", name
+                elif len(sent) == 1:
+                    status, observed = "observed", sent[0]
+                else:
+                    status, observed = ("ambiguous" if sent else "unobserved"), ""
                 self._result.team_slots.append(BattleTeamSlot(
                     battle_id=self._battle_id,
                     player_side=side,
                     slot_no=idx,
                     pokemon_name=name,
-                    is_lead=name in lead_names.get(side, set()),
+                    is_lead=bool(_match_species(name, lead_species.get(side, set()))),
+                    species_observed=observed,
+                    form_status=status,
+                    was_sent_out=bool(sent),
                 ))
 
         # Deduplicate leads (same pokemon can appear twice from preview + start)
@@ -919,6 +1015,9 @@ class InMemoryDB:
                 "slot_no": ts.slot_no,
                 "pokemon_name": ts.pokemon_name,
                 "is_lead": int(ts.is_lead),
+                "species_observed": ts.species_observed,
+                "form_status": ts.form_status,
+                "was_sent_out": int(ts.was_sent_out),
             })
 
         # battle_leads
@@ -927,6 +1026,7 @@ class InMemoryDB:
                 "battle_id": lead.battle_id,
                 "username": lead.username,
                 "pokemon_name": lead.pokemon_name,
+                "species": lead.species,
                 "lead_slot": lead.lead_slot,
             })
 
@@ -937,6 +1037,7 @@ class InMemoryDB:
                 "turn_no": mv.turn_no,
                 "username":mv.username,
                 "pokemon_name": mv.pokemon_name,
+                "species": mv.species,
                 "move_name": mv.move_name,
                 "target_name": mv.target_name,
                 "success": int(mv.success),
@@ -949,6 +1050,8 @@ class InMemoryDB:
                 "turn_no": dmg.turn_no,
                 "attacker_pokemon": dmg.attacker_pokemon,
                 "defender_pokemon": dmg.defender_pokemon,
+                "attacker_species": dmg.attacker_species,
+                "defender_species": dmg.defender_species,
                 "move_name": dmg.move_name,
                 "hp_before": dmg.hp_before,
                 "hp_after": dmg.hp_after,
@@ -962,6 +1065,8 @@ class InMemoryDB:
                 "turn_no": ko.turn_no,
                 "killer_pokemon": ko.killer_pokemon,
                 "victim_pokemon": ko.victim_pokemon,
+                "killer_species": ko.killer_species,
+                "victim_species": ko.victim_species,
                 "move_name": ko.move_name,
                 "ko_type": ko.ko_type,
             })
@@ -972,6 +1077,7 @@ class InMemoryDB:
                 "battle_id": f.battle_id,
                 "turn_no": f.turn_no,
                 "pokemon_name": f.pokemon_name,
+                "species": f.species,
             })
 
         # battle_switch
@@ -981,6 +1087,7 @@ class InMemoryDB:
                 "turn_no": sw.turn_no,
                 "username": sw.username,
                 "pokemon_name": sw.pokemon_name,
+                "species": sw.species,
             })
 
         # battle_weather
@@ -998,6 +1105,7 @@ class InMemoryDB:
                 "battle_id": st.battle_id,
                 "turn_no": st.turn_no,
                 "pokemon_name": st.pokemon_name,
+                "species": st.species,
                 "status_code": st.status_code,
             })
 
@@ -1007,6 +1115,7 @@ class InMemoryDB:
                 "battle_id": ab.battle_id,
                 "turn_no": ab.turn_no,
                 "pokemon_name": ab.pokemon_name,
+                "species": ab.species,
                 "ability_name": ab.ability_name,
             })
 
@@ -1016,6 +1125,7 @@ class InMemoryDB:
                 "battle_id": te.battle_id,
                 "turn_no": te.turn_no,
                 "pokemon_name": te.pokemon_name,
+                "species": te.species,
                 "tera_type": te.tera_type,
             })
 

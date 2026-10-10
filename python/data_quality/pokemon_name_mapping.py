@@ -3,6 +3,8 @@
 Matching is deliberately conservative:
   1. explicit override  (python/data_quality/showdown_overrides.csv)
   2. exact match after normalisation  ("Flutter Mane" -> "flutter-mane")
+  4. form missing from the master data ("Arceus-Fire", "Ogerpon-Wellspring-Tera") -> species only,
+     form_status = 'unlisted'. Forms are never merged: their stats / types / abilities may differ.
   3. masked team-preview name  ("Urshifu-*")  -> species only: the form is hidden by Showdown and is NOT
      recoverable from the event tables, so poke_id stays NULL and form_status = 'masked'
 Anything else stays UNMATCHED and is reported with *suggestions* only. A suggestion is never applied
@@ -23,6 +25,7 @@ from pathlib import Path
 import pandas as pd
 
 DEFAULT_OVERRIDES = Path(__file__).with_name("showdown_overrides.csv")
+DEFAULT_NON_CANONICAL = Path(__file__).with_name("showdown_non_canonical.csv")   # fan-made (CAP) names, not in PokeAPI
 MAP_TABLE = "showdown_pokemon_map"
 MASK_SUFFIX = "-*"   # Showdown hides the form of some species at team preview, e.g. "Urshifu-*"
 
@@ -41,6 +44,18 @@ def load_overrides(path: Path = DEFAULT_OVERRIDES) -> dict[str, str]:
     """CSV with columns showdown_name,pokemon  ->  {showdown_name: pokeapi_slug}."""
     df = pd.read_csv(path, dtype=str).dropna()
     return {r.showdown_name.strip(): normalize_name(r.pokemon) for r in df.itertuples()}
+
+
+def load_non_canonical(path: Path = DEFAULT_NON_CANONICAL) -> set[str]:
+    """CSV with column showdown_name: fake Pokemon (CAP) that must not pollute the mapping and its reports."""
+    return set(pd.read_csv(path, dtype=str).dropna()["showdown_name"].str.strip()) if path.exists() else set()
+
+
+def drop_non_canonical(counts: Counter, fake: set[str]) -> tuple[Counter, Counter]:
+    """Split name counts into (canonical, ignored)."""
+    return (Counter({n: c for n, c in counts.items() if n not in fake}),
+            Counter({n: c for n, c in counts.items() if n in fake}))
+
 
 
 def count_names_from_parquet(path: Path, column: str = "pokemon_name", batch_size: int = 1_000_000) -> Counter:
@@ -63,8 +78,8 @@ def load_master_names(engine) -> pd.DataFrame:
 def build_mapping(counts: Counter, master: pd.DataFrame, overrides: dict[str, str] | None = None):
     """Return (mapping, unmatched). `counts` = {showdown_name: number_of_rows}.
 
-    mapping   : showdown_name, poke_id, pokemon, species_id, method ('override' | 'exact' | 'masked'),
-                form_status ('known' | 'masked'), n_rows.  Masked rows have NULL poke_id / pokemon.
+    mapping   : showdown_name, poke_id, pokemon, species_id, method ('override' | 'exact' | 'masked' | 'unlisted'),
+                form_status ('known' | 'masked' | 'unlisted'), n_rows.  Masked rows have NULL poke_id / pokemon.
     unmatched : showdown_name, n_rows, suggestions   (sorted by n_rows, biggest first)
     """
     overrides = overrides or {}
@@ -89,13 +104,17 @@ def build_mapping(counts: Counter, master: pd.DataFrame, overrides: dict[str, st
             slug, method = normalize_name(name), "exact"
         else:
             slug = None
-        species_id = _masked_species_id(name, slug_to_row) if slug is None and has_species else None
+        species_id, status = None, "masked"
+        if slug is None and has_species:
+            species_id = _masked_species_id(name, slug_to_row)
+            if species_id is None:           # form missing from the master data: species only, never a guessed form
+                species_id, status = _family_species_id(name, slug_to_row), "unlisted"
         if slug is None and species_id is None:
             unmatched.append({"showdown_name": name, "n_rows": n_rows,
                               "suggestions": "; ".join(_suggest(name, slug_to_row))})
         elif slug is None:
             mapped.append({"showdown_name": name, "poke_id": None, "pokemon": None, "species_id": species_id,
-                           "method": "masked", "form_status": "masked", "n_rows": n_rows})
+                           "method": status, "form_status": status, "n_rows": n_rows})
         else:
             r = slug_to_row[slug]
             sid = getattr(r, "species_id", None)
@@ -120,6 +139,18 @@ def _masked_species_id(name: str, slug_to_row: dict) -> int | None:
     return ids.pop() if len(ids) == 1 else None
 
 
+def _family_species_id(name: str, slug_to_row: dict) -> int | None:
+    """'Arceus-Fire' / 'Ogerpon-Wellspring-Tera' -> species_id of the family, only for form-like names
+    (with a hyphen suffix) not present in the master data and only if the whole family is one species."""
+    slug = normalize_name(name)
+    if "-" not in slug:
+        return None
+    base = slug.split("-")[0]
+    ids = {int(r.species_id) for s, r in slug_to_row.items()
+           if (s == base or s.startswith(base + "-")) and pd.notna(r.species_id)}
+    return ids.pop() if len(ids) == 1 else None
+
+
 def _suggest(name: str, slug_to_row: dict, limit: int = 3) -> list[str]:
     slug = normalize_name(name)
     base = slug.split("-")[0]
@@ -131,7 +162,8 @@ def _suggest(name: str, slug_to_row: dict, limit: int = 3) -> list[str]:
 
 def coverage(mapping: pd.DataFrame, unmatched: pd.DataFrame) -> dict:
     """Coverage weighted by rows (the denominator that matters for usage / win-rate stats) and by distinct names."""
-    is_masked = (mapping["form_status"] == "masked") if "form_status" in mapping else pd.Series(False, index=mapping.index)
+    species_only = ["masked", "unlisted"]    # species known, exact form not
+    is_masked = mapping["form_status"].isin(species_only) if "form_status" in mapping else pd.Series(False, index=mapping.index)
     rows_masked, names_masked = int(mapping.loc[is_masked, "n_rows"].sum()), int(is_masked.sum())
     rows_ok, rows_bad = int(mapping["n_rows"].sum()) - rows_masked, int(unmatched["n_rows"].sum())
     names_ok, names_bad = len(mapping) - names_masked, len(unmatched)
@@ -165,11 +197,19 @@ def main(argv=None) -> None:
     ap.add_argument("--overrides", type=Path, default=DEFAULT_OVERRIDES)
     ap.add_argument("--out-dir", type=Path, default=Path("data/mapping"))
     ap.add_argument("--to-mysql", action="store_true", help=f"also (re)write table {MAP_TABLE}")
+    ap.add_argument("--species-dir", type=Path, default=None,
+                    help="also count the real species names (battle_leads / battle_switch 'species') in this output dir")
     args = ap.parse_args(argv)
 
     from python.database.db_connection import engine
 
     counts = count_names_from_parquet(args.team_slot, args.column)
+    if args.species_dir:
+        for table in ("battle_leads", "battle_switch"):
+            counts += count_names_from_parquet(args.species_dir / f"{table}.parquet", "species")
+    counts, ignored = drop_non_canonical(counts, load_non_canonical())
+    if ignored:
+        print(f"Ignored {len(ignored)} non-canonical (CAP) names, {sum(ignored.values()):,} rows: {sorted(ignored)}")
     mapping, unmatched = build_mapping(counts, load_master_names(engine), load_overrides(args.overrides))
 
     args.out_dir.mkdir(parents=True, exist_ok=True)

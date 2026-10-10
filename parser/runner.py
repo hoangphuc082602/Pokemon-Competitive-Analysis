@@ -30,7 +30,7 @@ import os
 import sys
 import time
 import traceback
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from dataclasses import dataclass, field as dc_field
 from pathlib import Path
 from typing import Optional
@@ -84,28 +84,29 @@ TABLE_COLUMNS: dict[str, list[str]] = {
     ],
     "battle_team_slot": [
         "battle_id", "player_side", "slot_no", "pokemon_name", "is_lead",
+        "species_observed", "form_status", "was_sent_out",
     ],
     "battle_leads": [
-        "battle_id", "username", "pokemon_name", "lead_slot",
+        "battle_id", "username", "pokemon_name", "species", "lead_slot",
     ],
     "battle_move": [
-        "battle_id", "turn_no", "username", "pokemon_name",
+        "battle_id", "turn_no", "username", "pokemon_name", "species",
         "move_name", "target_name", "success",
     ],
     "battle_damage": [
         "battle_id", "turn_no", "attacker_pokemon", "defender_pokemon",
-        "move_name", "hp_before", "hp_after", "damage_pct",
+        "attacker_species", "defender_species", "move_name", "hp_before", "hp_after", "damage_pct",
     ],
     "battle_ko": [
         "battle_id", "turn_no", "killer_pokemon", "victim_pokemon",
-        "move_name", "ko_type",
+        "killer_species", "victim_species", "move_name", "ko_type",
     ],
-    "battle_faint": ["battle_id", "turn_no", "pokemon_name"],
-    "battle_switch": ["battle_id", "turn_no", "username", "pokemon_name"],
+    "battle_faint": ["battle_id", "turn_no", "pokemon_name", "species"],
+    "battle_switch": ["battle_id", "turn_no", "username", "pokemon_name", "species"],
     "battle_weather": ["battle_id", "turn_no", "weather_name", "source_pokemon"],
-    "battle_status": ["battle_id", "turn_no", "pokemon_name", "status_code"],
-    "battle_ability": ["battle_id", "turn_no", "pokemon_name", "ability_name"],
-    "battle_tera": ["battle_id", "turn_no", "pokemon_name", "tera_type"],
+    "battle_status": ["battle_id", "turn_no", "pokemon_name", "species", "status_code"],
+    "battle_ability": ["battle_id", "turn_no", "pokemon_name", "species", "ability_name"],
+    "battle_tera": ["battle_id", "turn_no", "pokemon_name", "species", "tera_type"],
     "battle_field_state": [
         "battle_id", "turn_no",
         "p1_left", "p1_right", "p2_left", "p2_right",
@@ -128,33 +129,37 @@ TABLE_DTYPES: dict[str, dict[str, str]] = {
     "battle_team_slot": {
         "battle_id": "string", "player_side": "string",
         "slot_no": "Int16", "pokemon_name": "string", "is_lead": "Int8",
+        "species_observed": "string", "form_status": "string", "was_sent_out": "Int8",
     },
     "battle_leads": {
         "battle_id": "string", "username": "string",
-        "pokemon_name": "string", "lead_slot": "Int8",
+        "pokemon_name": "string", "species": "string", "lead_slot": "Int8",
     },
     "battle_move": {
         "battle_id": "string", "turn_no": "Int16", "username": "string",
-        "pokemon_name": "string", "move_name": "string",
+        "pokemon_name": "string", "species": "string", "move_name": "string",
         "target_name": "string", "success": "Int8",
     },
     "battle_damage": {
         "battle_id": "string", "turn_no": "Int16",
         "attacker_pokemon": "string", "defender_pokemon": "string",
+        "attacker_species": "string", "defender_species": "string",
         "move_name": "string",
         "hp_before": "float32", "hp_after": "float32", "damage_pct": "float32",
     },
     "battle_ko": {
         "battle_id": "string", "turn_no": "Int16",
         "killer_pokemon": "string", "victim_pokemon": "string",
+        "killer_species": "string", "victim_species": "string",
         "move_name": "string", "ko_type": "string",
     },
     "battle_faint": {
         "battle_id": "string", "turn_no": "Int16", "pokemon_name": "string",
+        "species": "string",
     },
     "battle_switch": {
         "battle_id": "string", "turn_no": "Int16",
-        "username": "string", "pokemon_name": "string",
+        "username": "string", "pokemon_name": "string", "species": "string",
     },
     "battle_weather": {
         "battle_id": "string", "turn_no": "Int16",
@@ -162,15 +167,15 @@ TABLE_DTYPES: dict[str, dict[str, str]] = {
     },
     "battle_status": {
         "battle_id": "string", "turn_no": "Int16",
-        "pokemon_name": "string", "status_code": "string",
+        "pokemon_name": "string", "species": "string", "status_code": "string",
     },
     "battle_ability": {
         "battle_id": "string", "turn_no": "Int16",
-        "pokemon_name": "string", "ability_name": "string",
+        "pokemon_name": "string", "species": "string", "ability_name": "string",
     },
     "battle_tera": {
         "battle_id": "string", "turn_no": "Int16",
-        "pokemon_name": "string", "tera_type": "string",
+        "pokemon_name": "string", "species": "string", "tera_type": "string",
     },
     "battle_field_state": {
         "battle_id": "string", "turn_no": "Int16",
@@ -357,10 +362,27 @@ def _detect_log_column(df: pd.DataFrame) -> str:
     )
 
 
+_META_MAP = {"uploadtime": "upload_time", "formatid": "format_id", "format": "format", "rating": "rating"}
+
+
+def _apply_meta(db, meta: "Optional[dict]") -> None:
+    """Fill battle fields the log did not provide from the source parquet columns (never overwrites)."""
+    if not meta or not db.tables.get("battle"):
+        return
+    row = db.tables["battle"][0]
+    for src, dst in _META_MAP.items():
+        val = meta.get(src)
+        if val is None or pd.isna(val) or row.get(dst) not in (None, ""):
+            continue
+        row[dst] = int(round(val)) if dst in ("rating", "upload_time") else str(val)
+
+
 def _parse_log_row(
     log_text: str,
     source_file: str,
     row_idx: int,
+    replay_id: str = "",
+    meta: "Optional[dict]" = None,
 ) -> "tuple[InMemoryDB | None, str, str]":
     """
     Parse one log string.
@@ -368,11 +390,12 @@ def _parse_log_row(
     Designed to be called from a subprocess in parallel mode.
     """
     try:
-        battle_id = _generate_battle_id(log_text, source_file + f"#row{row_idx}")
+        battle_id = replay_id or _generate_battle_id(log_text, source_file + f"#row{row_idx}")
         parser = BattleLogParser(battle_id=battle_id, replay_path=source_file)
         parsed = parser.parse(log_text)
         db = InMemoryDB()
         db.ingest(parsed)
+        _apply_meta(db, meta)
         return db, battle_id, ""
     except Exception:
         err = traceback.format_exc(limit=4)
@@ -428,6 +451,8 @@ def run(
     batch_size: int,
     workers: int,
     dry_run: bool,
+    limit_rows: int = 0,
+    id_col: Optional[str] = None,
 ) -> RunStats:
     stats = RunStats()
 
@@ -477,6 +502,17 @@ def run(
                 continue
 
             log_series = df[col].dropna()
+            if limit_rows:
+                log_series = log_series.iloc[:limit_rows]
+            replay_ids = None
+            if id_col:
+                if id_col not in df.columns:
+                    log.error("  Id column '%s' not in file. Available: %s", id_col, list(df.columns))
+                    stats.parse_errors += 1
+                    continue
+                replay_ids = df[id_col].loc[log_series.index].astype(str)
+            meta_cols = [c for c in _META_MAP if c in df.columns]
+            meta_rows = df.loc[log_series.index, meta_cols].to_dict("index") if meta_cols else None
             stats.total_log_rows += len(log_series)
             log.info("  %d log rows to parse", len(log_series))
 
@@ -490,6 +526,8 @@ def run(
                     stats=stats,
                     seen=seen_battle_ids,
                     dry_run=dry_run,
+                    replay_ids=replay_ids,
+                    meta_rows=meta_rows,
                 )
             else:
                 _run_parallel(
@@ -500,6 +538,8 @@ def run(
                     stats=stats,
                     seen=seen_battle_ids,
                     workers=workers,
+                    replay_ids=replay_ids,
+                    meta_rows=meta_rows,
                 )
 
             # Progress after each parquet file
@@ -540,6 +580,8 @@ def _run_serial(
     stats: RunStats,
     seen: set[str],
     dry_run: bool,
+    replay_ids: "Optional[pd.Series]" = None,
+    meta_rows: "Optional[dict]" = None,
 ) -> None:
     total = len(log_series)
     for i, (idx, log_text) in enumerate(log_series.items()):
@@ -551,7 +593,10 @@ def _run_serial(
             err_log.record(source_name, "", "Empty or non-string log")
             continue
 
-        db, battle_id, error = _parse_log_row(log_text, source_name, i)
+        db, battle_id, error = _parse_log_row(
+            log_text, source_name, i, replay_ids.get(idx, "") if replay_ids is not None else "",
+            meta_rows.get(idx) if meta_rows else None,
+        )
 
         if error:
             stats.parse_errors += 1
@@ -574,8 +619,8 @@ def _run_serial(
 
 def _parallel_task(args: tuple) -> "tuple[dict[str, list[dict]], str, str, str]":
     """Top-level function (picklable) for ProcessPoolExecutor."""
-    log_text, source_name, row_idx = args
-    db, battle_id, error = _parse_log_row(log_text, source_name, row_idx)
+    log_text, source_name, row_idx, replay_id, meta = args
+    db, battle_id, error = _parse_log_row(log_text, source_name, row_idx, replay_id, meta)
     if error or db is None:
         return {}, battle_id, error, source_name
     # Serialise tables as plain dicts (ProcessPoolExecutor uses pickle)
@@ -590,43 +635,59 @@ def _run_parallel(
     stats: RunStats,
     seen: set[str],
     workers: int,
+    replay_ids: "Optional[pd.Series]" = None,
+    meta_rows: "Optional[dict]" = None,
 ) -> None:
-    tasks = [
-        (log_text, source_name, i)
-        for i, log_text in enumerate(log_series)
-        if isinstance(log_text, str) and log_text.strip()
-    ]
-    stats.parse_errors += len(log_series) - len(tasks)
+    def _valid(x) -> bool:
+        return isinstance(x, str) and bool(x.strip())
 
-    total = len(tasks)
+    total = int(log_series.map(_valid).sum())
+    stats.parse_errors += len(log_series) - total
+    tasks = (
+        (log_text, source_name, i, replay_ids.get(idx, "") if replay_ids is not None else "",
+         meta_rows.get(idx) if meta_rows else None)
+        for i, (idx, log_text) in enumerate(log_series.items())
+        if _valid(log_text)
+    )
+
     done = 0
+
+    def _consume(fut) -> None:
+        nonlocal done
+        done += 1
+        if done % 1000 == 0 or done == total:
+            log.info("    %d / %d  (%.0f%%)", done, total, 100 * done / total)
+        try:
+            tables, battle_id, error, src = fut.result()
+        except Exception as exc:
+            stats.parse_errors += 1
+            err_log.record(source_name, "", str(exc))
+            return
+        if error:
+            stats.parse_errors += 1
+            err_log.record(src, battle_id or "", error)
+            return
+        if battle_id in seen:
+            stats.skipped_duplicate += 1
+            return
+        seen.add(battle_id)
+        acc.add(_DictDB(tables))   # lightweight stub for TableAccumulator
+        stats.parsed_ok += 1
+
+    # Keep only a few tasks in flight: submitting every log up front pickles the whole file into RAM.
+    max_pending = max(workers * 4, 8)
     with ProcessPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(_parallel_task, t): t for t in tasks}
-        for fut in as_completed(futures):
-            done += 1
-            if done % 1000 == 0 or done == total:
-                log.info("    %d / %d  (%.0f%%)", done, total, 100 * done / total)
-            try:
-                tables, battle_id, error, src = fut.result()
-            except Exception as exc:
-                stats.parse_errors += 1
-                err_log.record(source_name, "", str(exc))
-                continue
-
-            if error:
-                stats.parse_errors += 1
-                err_log.record(src, battle_id or "", error)
-                continue
-
-            if battle_id in seen:
-                stats.skipped_duplicate += 1
-                continue
-            seen.add(battle_id)
-
-            # Re-wrap raw dict into a lightweight stub for TableAccumulator
-            stub = _DictDB(tables)
-            acc.add(stub)
-            stats.parsed_ok += 1
+        pending: set = set()
+        while True:
+            for task in tasks:
+                pending.add(pool.submit(_parallel_task, task))
+                if len(pending) >= max_pending:
+                    break
+            if not pending:
+                break
+            finished, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for fut in finished:
+                _consume(fut)
 
 
 class _DictDB:
@@ -679,6 +740,18 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Number of parallel worker processes (0 or 1 = serial)",
     )
     p.add_argument(
+        "--limit-rows",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Only parse the first N logs of each parquet file (benchmarks / debugging)",
+    )
+    p.add_argument(
+        "--id-col",
+        default=None,
+        help="Parquet column holding the Showdown replay id (e.g. 'id'); used as battle_id instead of a log hash",
+    )
+    p.add_argument(
         "--dry-run",
         action="store_true",
         help="Parse without writing any output (for benchmarking / validation)",
@@ -695,4 +768,6 @@ if __name__ == "__main__":
         batch_size=args.batch,
         workers=args.workers,
         dry_run=args.dry_run,
+        limit_rows=args.limit_rows,
+        id_col=args.id_col,
     )

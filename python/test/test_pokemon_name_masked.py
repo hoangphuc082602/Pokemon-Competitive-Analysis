@@ -90,3 +90,42 @@ def test_write_mapping_table_keeps_null_poke_id_for_masked(master):
             "SELECT showdown_name, poke_id, species_id, form_status FROM showdown_pokemon_map ORDER BY showdown_name"
         )).all()
     assert rows == [("Pikachu", 25, 25, "known"), ("Urshifu-*", None, 892, "masked")]
+
+@pytest.fixture
+def master_forms():
+    rows = [(493, "arceus", 493), (1017, "ogerpon", 1017), (10273, "ogerpon-wellspring-mask", 1017),
+            (593, "jellicent-male", 593), (990, "iron-treads", 990), (991, "iron-bundle", 991),
+            (9000, "foo-a", 9000), (9001, "foo-b", 9001)]
+    return pd.DataFrame(rows, columns=["poke_id", "pokemon", "species_id"])
+
+
+def test_form_missing_from_master_is_species_only_not_merged(master_forms):
+    mapping, unmatched = build_mapping(Counter({"Arceus-Fire": 5, "Ogerpon-Wellspring-Tera": 3}), master_forms)
+    assert unmatched.empty
+    for name, species in (("Arceus-Fire", 493), ("Ogerpon-Wellspring-Tera", 1017)):
+        r = _row(mapping, name)
+        assert pd.isna(r["poke_id"]) and r["species_id"] == species
+        assert (r["method"], r["form_status"]) == ("unlisted", "unlisted")
+
+
+def test_plain_default_form_names_are_not_guessed(master_forms):
+    mapping, unmatched = build_mapping(Counter({"Jellicent": 7}), master_forms)
+    assert mapping.empty and list(unmatched["showdown_name"]) == ["Jellicent"]
+
+
+def test_unlisted_rule_needs_a_single_species_family(master_forms):
+    mapping, unmatched = build_mapping(Counter({"Iron-Hands": 1, "Foo-Z": 1}), master_forms)
+    assert mapping.empty and set(unmatched["showdown_name"]) == {"Iron-Hands", "Foo-Z"}
+
+
+def test_override_beats_the_unlisted_rule(master_forms):
+    mapping, _ = build_mapping(Counter({"Ogerpon-Wellspring-Tera": 1}), master_forms,
+                               {"Ogerpon-Wellspring-Tera": "ogerpon-wellspring-mask"})
+    r = _row(mapping, "Ogerpon-Wellspring-Tera")
+    assert (r["method"], r["poke_id"]) == ("override", 10273)
+
+
+def test_coverage_counts_unlisted_as_species_only(master_forms):
+    mapping, unmatched = build_mapping(Counter({"Arceus-Fire": 10, "Jellicent": 10}), master_forms)
+    cov = coverage(mapping, unmatched)
+    assert (cov["rows_species_only_pct"], cov["rows_matched_pct"]) == (50.0, 0.0)
