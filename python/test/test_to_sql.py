@@ -11,6 +11,7 @@ from python.database.to_sql import (
     import_parquet,
     main,
     plan_imports,
+    resume_point,
 )
 
 
@@ -159,3 +160,33 @@ def test_refusal_message_compares_with_parquet(tmp_path, engine, leads_df, table
             conn.execute(text("INSERT INTO battle_leads (battle_id) VALUES (:b)"), {"b": f"x{i}"})
     with pytest.raises(LoadError, match=expected.replace("(", r"\(").replace(")", r"\)")):
         check_target(engine, path, "battle_leads")
+
+# ---------- resume ----------
+def test_resume_point_finds_the_first_unloaded_row_group(tmp_path, leads_df):
+    path = tmp_path / "battle_leads.parquet"
+    write_parquet(path, leads_df)                       # row groups of 2, 2, 1 rows
+    assert [resume_point(path, n) for n in (0, 2, 4, 5)] == [0, 1, 2, 3]
+
+
+def test_resume_point_refuses_a_table_that_is_not_a_clean_prefix(tmp_path, leads_df):
+    path = tmp_path / "battle_leads.parquet"
+    write_parquet(path, leads_df)
+    with pytest.raises(LoadError, match="row-group boundary"):
+        resume_point(path, 3)
+
+
+def test_resume_completes_an_interrupted_load_without_duplicates(engine, tmp_path, leads_df):
+    write_parquet(tmp_path / "battle_leads.parquet", leads_df)
+    import_parquet(tmp_path / "battle_leads.parquet", "battle_leads", engine, start_group=0)
+    with engine.begin() as conn:                         # simulate a crash after two row groups
+        conn.execute(text("DELETE FROM battle_leads WHERE id > 4"))
+    assert count(engine, "battle_leads") == 4
+    assert main(["--output-dir", str(tmp_path), "--tables", "battle_leads", "--resume"], engine=engine) == 0
+    assert count(engine, "battle_leads") == 5
+
+
+def test_resume_on_a_complete_table_is_a_no_op(engine, tmp_path, leads_df):
+    write_parquet(tmp_path / "battle_leads.parquet", leads_df)
+    import_parquet(tmp_path / "battle_leads.parquet", "battle_leads", engine)
+    assert main(["--output-dir", str(tmp_path), "--tables", "battle_leads", "--resume"], engine=engine) == 0
+    assert count(engine, "battle_leads") == 5

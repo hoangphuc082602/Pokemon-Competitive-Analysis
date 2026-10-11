@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/actions/workflows/CI.yml/badge.svg)](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/actions/workflows/CI.yml)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
-![Tests](https://img.shields.io/badge/tests-99%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-161%20passing-brightgreen)
 
 An end-to-end data project built around **Pokémon VGC** (Level 50 doubles battles). Instead of analysing a ready-made dataset, it covers the whole data lifecycle:
 
