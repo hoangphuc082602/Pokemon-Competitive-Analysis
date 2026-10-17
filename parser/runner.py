@@ -27,7 +27,9 @@ import argparse
 import csv
 import logging
 import os
+import shutil
 import sys
+import tempfile
 import time
 import traceback
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
@@ -101,12 +103,12 @@ TABLE_COLUMNS: dict[str, list[str]] = {
         "battle_id", "turn_no", "killer_pokemon", "victim_pokemon",
         "killer_species", "victim_species", "move_name", "ko_type",
     ],
-    "battle_faint": ["battle_id", "turn_no", "pokemon_name", "species"],
+    "battle_faint": ["battle_id", "turn_no", "username", "pokemon_name", "species"],
     "battle_switch": ["battle_id", "turn_no", "username", "pokemon_name", "species"],
     "battle_weather": ["battle_id", "turn_no", "weather_name", "source_pokemon"],
-    "battle_status": ["battle_id", "turn_no", "pokemon_name", "species", "status_code"],
-    "battle_ability": ["battle_id", "turn_no", "pokemon_name", "species", "ability_name"],
-    "battle_tera": ["battle_id", "turn_no", "pokemon_name", "species", "tera_type"],
+    "battle_status": ["battle_id", "turn_no", "username", "pokemon_name", "species", "status_code"],
+    "battle_ability": ["battle_id", "turn_no", "username", "pokemon_name", "species", "ability_name"],
+    "battle_tera": ["battle_id", "turn_no", "username", "pokemon_name", "species", "tera_type"],
     "battle_field_state": [
         "battle_id", "turn_no",
         "p1_left", "p1_right", "p2_left", "p2_right",
@@ -154,7 +156,7 @@ TABLE_DTYPES: dict[str, dict[str, str]] = {
         "move_name": "string", "ko_type": "string",
     },
     "battle_faint": {
-        "battle_id": "string", "turn_no": "Int16", "pokemon_name": "string",
+        "battle_id": "string", "turn_no": "Int16", "username": "string", "pokemon_name": "string",
         "species": "string",
     },
     "battle_switch": {
@@ -167,15 +169,15 @@ TABLE_DTYPES: dict[str, dict[str, str]] = {
     },
     "battle_status": {
         "battle_id": "string", "turn_no": "Int16",
-        "pokemon_name": "string", "species": "string", "status_code": "string",
+        "username": "string", "pokemon_name": "string", "species": "string", "status_code": "string",
     },
     "battle_ability": {
         "battle_id": "string", "turn_no": "Int16",
-        "pokemon_name": "string", "species": "string", "ability_name": "string",
+        "username": "string", "pokemon_name": "string", "species": "string", "ability_name": "string",
     },
     "battle_tera": {
         "battle_id": "string", "turn_no": "Int16",
-        "pokemon_name": "string", "species": "string", "tera_type": "string",
+        "username": "string", "pokemon_name": "string", "species": "string", "tera_type": "string",
     },
     "battle_field_state": {
         "battle_id": "string", "turn_no": "Int16",
@@ -316,11 +318,13 @@ def make_writer(out_dir: Path) -> "ParquetWriter | CSVWriter":
 # =============================================================================
 
 class ErrorLog:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, append: bool = False):
         self._path = path
-        self._fh = open(path, "w", newline="", encoding="utf-8")
+        new = not (append and path.exists())
+        self._fh = open(path, "w" if new else "a", newline="", encoding="utf-8")
         self._writer = csv.writer(self._fh)
-        self._writer.writerow(["source_file", "battle_id", "error"])
+        if new:
+            self._writer.writerow(["source_file", "battle_id", "error"])
 
     def record(self, source_file: str, battle_id: str, error: str) -> None:
         self._writer.writerow([source_file, battle_id, error[:1000]])
@@ -444,6 +448,80 @@ class TableAccumulator:
 # Main runner
 # =============================================================================
 
+def _battle_ids(part: Path) -> set[str]:
+    path = part / "battle.parquet"
+    if not path.exists():
+        return set()
+    return set(pq.read_table(path, columns=["battle_id"]).column(0).to_pylist())
+
+
+def _log_column(pf: "pq.ParquetFile", log_col: Optional[str]) -> str:
+    names = pf.schema_arrow.names
+    if log_col:
+        if log_col not in names:
+            raise ValueError(f"Column '{log_col}' not in file. Available: {names}")
+        return log_col
+    try:
+        return _detect_log_column(pd.DataFrame(columns=names))      # by column name
+    except ValueError:
+        return _detect_log_column(next(pf.iter_batches(batch_size=50)).to_pandas())   # by content
+
+
+def merge_parts(out_dir: Path, part_dirs: list[Path]) -> None:
+    """Concatenate the per-file parquet parts into one <table>.parquet per table (row group by row group)."""
+    for table in TABLE_COLUMNS:
+        files = [p / f"{table}.parquet" for p in part_dirs if (p / f"{table}.parquet").exists()]
+        if not files:
+            continue
+        schema = pq.ParquetFile(files[0]).schema_arrow
+        with pq.ParquetWriter(str(out_dir / f"{table}.parquet"), schema, compression="snappy") as w:
+            for f in files:
+                pf = pq.ParquetFile(f)
+                for i in range(pf.num_row_groups):
+                    w.write_table(pf.read_row_group(i).cast(schema))
+
+
+def _process_file(
+    pq_path: Path, pool, acc: "TableAccumulator", err_log: "ErrorLog", stats: RunStats, seen: set[str], *,
+    log_col: Optional[str], id_col: Optional[str], workers: int, dry_run: bool, limit_rows: int, chunk_rows: int,
+) -> None:
+    """Stream one source file in chunks of chunk_rows logs, so memory does not grow with the file size."""
+    try:
+        pf = pq.ParquetFile(pq_path)
+    except Exception as exc:
+        raise ValueError(f"Failed to read parquet file: {exc}") from exc
+    names = pf.schema_arrow.names
+    col = _log_column(pf, log_col)
+    log.info("  Log column: '%s'", col)
+    if id_col and id_col not in names:
+        raise ValueError(f"Id column '{id_col}' not in file. Available: {names}")
+    meta_cols = [c for c in _META_MAP if c in names]
+    wanted = [col] + ([id_col] if id_col else []) + meta_cols
+    log.info("  %d log rows to parse", min(pf.metadata.num_rows, limit_rows) if limit_rows else pf.metadata.num_rows)
+
+    offset = 0
+    for batch in pf.iter_batches(columns=wanted, batch_size=chunk_rows):
+        chunk = batch.to_pandas()
+        if limit_rows:
+            chunk = chunk.iloc[: max(0, limit_rows - offset)]
+        if chunk.empty:
+            break
+        log_series = chunk[col].dropna()
+        replay_ids = chunk[id_col].loc[log_series.index].astype(str) if id_col else None
+        meta_rows = chunk.loc[log_series.index, meta_cols].to_dict("index") if meta_cols else None
+        stats.total_log_rows += len(log_series)
+        if workers <= 1 or dry_run:
+            _run_serial(log_series=log_series, source_name=str(pq_path), acc=acc, err_log=err_log, stats=stats,
+                        seen=seen, dry_run=dry_run, replay_ids=replay_ids, meta_rows=meta_rows, row_offset=offset)
+        else:
+            _run_parallel(log_series=log_series, source_name=str(pq_path), acc=acc, err_log=err_log, stats=stats,
+                          seen=seen, workers=workers, replay_ids=replay_ids, meta_rows=meta_rows,
+                          row_offset=offset, pool=pool)
+        offset += len(chunk)
+        if limit_rows and offset >= limit_rows:
+            break
+
+
 def run(
     data_dir: Path,
     out_dir: Path,
@@ -453,111 +531,85 @@ def run(
     dry_run: bool,
     limit_rows: int = 0,
     id_col: Optional[str] = None,
+    chunk_rows: int = 20_000,
+    resume: bool = False,
 ) -> RunStats:
+    """Parse every parquet file in data_dir.
+
+    Each source file is written to its own folder out_dir/parts/<file>/ and marked with a _DONE file when
+    complete, so a crash only loses the file being processed (--resume skips finished files). When every file
+    is done the parts are merged into out_dir/<table>.parquet.
+    """
     stats = RunStats()
 
     # ── Discover parquet files ────────────────────────────────────────────────
-    parquet_files = list(data_dir.glob("*.parquet"))
+    parquet_files = sorted(data_dir.glob("*.parquet"))
     if not parquet_files:
         log.error("No parquet files found in %s", data_dir)
         sys.exit(1)
-
     stats.total_parquet_files = len(parquet_files)
     log.info("Found %d parquet file(s) in %s", len(parquet_files), data_dir)
 
     # ── Prepare output ────────────────────────────────────────────────────────
+    parts_dir = out_dir / "parts"
+    if not dry_run and parts_dir.exists() and any(parts_dir.iterdir()) and not resume:
+        log.error("%s already holds parts of an earlier run: use --resume to continue it, or delete the folder", parts_dir)
+        sys.exit(1)
     seen_battle_ids: set[str] = set()
     error_log_path = out_dir / "parse_errors.csv"
     out_dir.mkdir(parents=True, exist_ok=True)
+    final_counts: dict[str, int] = {}
+    part_dirs: list[Path] = []
+    pool = ProcessPoolExecutor(max_workers=workers) if workers > 1 and not dry_run else None
 
-    with make_writer(out_dir) as writer, ErrorLog(error_log_path) as err_log:
-        acc = TableAccumulator(writer, flush_every=batch_size)
-
-        for pq_idx, pq_path in enumerate(parquet_files, start=1):
-            log.info(
-                "[%d/%d] Reading %s",
-                pq_idx, len(parquet_files), pq_path.name,
-            )
-            try:
-                df = pd.read_parquet(pq_path)
-            except Exception as exc:
-                log.error("  Failed to read parquet file: %s", exc)
-                stats.parse_errors += 1
-                continue
-
-            # Detect log column once per file (column may differ between files)
-            col = log_col
-            if col is None:
-                try:
-                    col = _detect_log_column(df)
-                    log.info("  Auto-detected log column: '%s'", col)
-                except ValueError as exc:
-                    log.error("  %s", exc)
-                    stats.parse_errors += 1
+    try:
+        with ErrorLog(error_log_path, append=resume) as err_log:
+            for pq_idx, pq_path in enumerate(parquet_files, start=1):
+                part = parts_dir / pq_path.stem
+                if not dry_run and (part / "_DONE").exists():
+                    ids = _battle_ids(part)
+                    seen_battle_ids |= ids
+                    stats.parsed_ok += len(ids)
+                    part_dirs.append(part)
+                    log.info("[%d/%d] %s already done: skipping (%d battles)", pq_idx, len(parquet_files), pq_path.name, len(ids))
                     continue
+                log.info("[%d/%d] Reading %s", pq_idx, len(parquet_files), pq_path.name)
+                shutil.rmtree(part, ignore_errors=True)          # leftovers of an interrupted attempt
+                with tempfile.TemporaryDirectory() as tmp:
+                    target = Path(tmp) if dry_run else part
+                    try:
+                        with make_writer(target) as writer:
+                            acc = TableAccumulator(writer, flush_every=batch_size)
+                            _process_file(pq_path, pool, acc, err_log, stats, seen_battle_ids, log_col=log_col,
+                                          id_col=id_col, workers=workers, dry_run=dry_run, limit_rows=limit_rows,
+                                          chunk_rows=chunk_rows)
+                            acc.flush()
+                            counts = acc.total_rows()
+                    except ValueError as exc:
+                        log.error("  %s", exc)
+                        stats.parse_errors += 1
+                        shutil.rmtree(part, ignore_errors=True)
+                        continue
+                if not dry_run:
+                    (part / "_DONE").write_text(f"{counts.get('battle', 0)} battles\n", encoding="utf-8")
+                    part_dirs.append(part)
+                for table, n in counts.items():
+                    final_counts[table] = final_counts.get(table, 0) + n
+                log.info("  Progress: %d parsed, %d errors | elapsed %s", stats.parsed_ok, stats.parse_errors, stats.elapsed())
+    finally:
+        if pool is not None:
+            pool.shutdown(wait=True, cancel_futures=True)
 
-            if col not in df.columns:
-                log.error("  Column '%s' not in file. Available: %s", col, list(df.columns))
-                stats.parse_errors += 1
-                continue
-
-            log_series = df[col].dropna()
-            if limit_rows:
-                log_series = log_series.iloc[:limit_rows]
-            replay_ids = None
-            if id_col:
-                if id_col not in df.columns:
-                    log.error("  Id column '%s' not in file. Available: %s", id_col, list(df.columns))
-                    stats.parse_errors += 1
-                    continue
-                replay_ids = df[id_col].loc[log_series.index].astype(str)
-            meta_cols = [c for c in _META_MAP if c in df.columns]
-            meta_rows = df.loc[log_series.index, meta_cols].to_dict("index") if meta_cols else None
-            stats.total_log_rows += len(log_series)
-            log.info("  %d log rows to parse", len(log_series))
-
-            # ── Serial or parallel ────────────────────────────────────────────
-            if workers <= 1 or dry_run:
-                _run_serial(
-                    log_series=log_series,
-                    source_name=str(pq_path),
-                    acc=acc,
-                    err_log=err_log,
-                    stats=stats,
-                    seen=seen_battle_ids,
-                    dry_run=dry_run,
-                    replay_ids=replay_ids,
-                    meta_rows=meta_rows,
-                )
-            else:
-                _run_parallel(
-                    log_series=log_series,
-                    source_name=str(pq_path),
-                    acc=acc,
-                    err_log=err_log,
-                    stats=stats,
-                    seen=seen_battle_ids,
-                    workers=workers,
-                    replay_ids=replay_ids,
-                    meta_rows=meta_rows,
-                )
-
-            # Progress after each parquet file
-            log.info(
-                "  Progress: %d parsed, %d errors | elapsed %s",
-                stats.parsed_ok, stats.parse_errors, stats.elapsed(),
-            )
-
-        # Final flush of remaining rows
-        acc.flush()
-        final_counts = acc.total_rows()
+    if not dry_run and part_dirs:
+        log.info("Merging %d part(s) into %s", len(part_dirs), out_dir)
+        merge_parts(out_dir, part_dirs)
 
     # ── Summary ───────────────────────────────────────────────────────────────
     log.info("\n" + "=" * 60)
     log.info("RUN COMPLETE")
     log.info("=" * 60)
     log.info(stats.summary())
-    log.info("\nRow counts per table:")
+    log.info("\nRow counts per table (files processed in this run):")
     for table, count in final_counts.items():
         if count:
             log.info("  %-30s %d", table, count)
@@ -582,6 +634,7 @@ def _run_serial(
     dry_run: bool,
     replay_ids: "Optional[pd.Series]" = None,
     meta_rows: "Optional[dict]" = None,
+    row_offset: int = 0,
 ) -> None:
     total = len(log_series)
     for i, (idx, log_text) in enumerate(log_series.items()):
@@ -594,7 +647,7 @@ def _run_serial(
             continue
 
         db, battle_id, error = _parse_log_row(
-            log_text, source_name, i, replay_ids.get(idx, "") if replay_ids is not None else "",
+            log_text, source_name, row_offset + i, replay_ids.get(idx, "") if replay_ids is not None else "",
             meta_rows.get(idx) if meta_rows else None,
         )
 
@@ -637,6 +690,8 @@ def _run_parallel(
     workers: int,
     replay_ids: "Optional[pd.Series]" = None,
     meta_rows: "Optional[dict]" = None,
+    row_offset: int = 0,
+    pool: "Optional[ProcessPoolExecutor]" = None,
 ) -> None:
     def _valid(x) -> bool:
         return isinstance(x, str) and bool(x.strip())
@@ -644,7 +699,7 @@ def _run_parallel(
     total = int(log_series.map(_valid).sum())
     stats.parse_errors += len(log_series) - total
     tasks = (
-        (log_text, source_name, i, replay_ids.get(idx, "") if replay_ids is not None else "",
+        (log_text, source_name, row_offset + i, replay_ids.get(idx, "") if replay_ids is not None else "",
          meta_rows.get(idx) if meta_rows else None)
         for i, (idx, log_text) in enumerate(log_series.items())
         if _valid(log_text)
@@ -676,7 +731,9 @@ def _run_parallel(
 
     # Keep only a few tasks in flight: submitting every log up front pickles the whole file into RAM.
     max_pending = max(workers * 4, 8)
-    with ProcessPoolExecutor(max_workers=workers) as pool:
+    own_pool = pool is None
+    pool = pool or ProcessPoolExecutor(max_workers=workers)
+    try:
         pending: set = set()
         while True:
             for task in tasks:
@@ -688,6 +745,9 @@ def _run_parallel(
             finished, pending = wait(pending, return_when=FIRST_COMPLETED)
             for fut in finished:
                 _consume(fut)
+    finally:
+        if own_pool:
+            pool.shutdown(wait=True)
 
 
 class _DictDB:
@@ -740,6 +800,18 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Number of parallel worker processes (0 or 1 = serial)",
     )
     p.add_argument(
+        "--chunk-rows",
+        type=int,
+        default=20_000,
+        metavar="N",
+        help="Logs read into memory at a time (bounds memory on large parquet files)",
+    )
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help="Continue an interrupted run: skip the source files already finished in <out-dir>/parts",
+    )
+    p.add_argument(
         "--limit-rows",
         type=int,
         default=0,
@@ -770,4 +842,6 @@ if __name__ == "__main__":
         dry_run=args.dry_run,
         limit_rows=args.limit_rows,
         id_col=args.id_col,
+        chunk_rows=args.chunk_rows,
+        resume=args.resume,
     )

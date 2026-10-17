@@ -82,3 +82,19 @@ def test_avatar_id_is_never_read_as_a_rating():
     log = LOG_B.replace("|player|p1|alice|1|1500", "|player|p1|alice|265|")
     rows = {b.side: b.rating_before for b in _parse(log).battle_players}
     assert rows["p1"] is None and rows["p2"] == 1500
+
+
+def test_tera_ability_status_faint_events_carry_the_owner():
+    parsed = _parse(LOG_B)
+    assert parsed.teras[0].username == "alice"          # event line only had 'p1b: Teraclope!'
+    assert parsed.abilities[0].username == "bob"
+    assert parsed.statuses[0].username == "bob"
+    assert parsed.faints[0].username == "bob"
+
+
+def test_same_species_on_both_sides_is_attributed_to_the_right_player():
+    log = LOG_B.replace("|move|p1a: Urshifu|Wicked Blow",
+                        "|-ability|p1a: Urshifu|Unseen Fist\n|-ability|p2b: Incineroar|Intimidate|boost\n"
+                        "|move|p1a: Urshifu|Wicked Blow", 1)
+    owners = {(a.species, a.username) for a in _parse(log).abilities}
+    assert ("Urshifu-Rapid-Strike", "alice") in owners and ("Incineroar", "bob") in owners
