@@ -143,6 +143,7 @@ class BattleFaintRecord:
     turn_no: int = 0
     pokemon_name: str = ""
     species: str = ""             # real species/form from |switch| details (pokemon_name is the nickname)
+    username: str = ""            # owner of the Pokemon (the event line only carries p1a / p2b)
 
 
 @dataclass
@@ -168,6 +169,7 @@ class BattleStatusRecord:
     turn_no: int = 0
     pokemon_name: str = ""
     species: str = ""             # real species/form from |switch| details (pokemon_name is the nickname)
+    username: str = ""            # owner of the Pokemon (the event line only carries p1a / p2b)
     status_code: str = ""
 
 
@@ -177,6 +179,7 @@ class BattleAbilityRecord:
     turn_no: int = 0
     pokemon_name: str = ""
     species: str = ""             # real species/form from |switch| details (pokemon_name is the nickname)
+    username: str = ""            # owner of the Pokemon (the event line only carries p1a / p2b)
     ability_name: str = ""
 
 
@@ -186,6 +189,7 @@ class BattleTeraRecord:
     turn_no: int = 0
     pokemon_name: str = ""
     species: str = ""             # real species/form from |switch| details (pokemon_name is the nickname)
+    username: str = ""            # owner of the Pokemon (the event line only carries p1a / p2b)
     tera_type: str = ""
 
 
@@ -557,6 +561,10 @@ class BattleLogParser:
         self._active_species[side_slot] = species
         self._name_species[(_side_from_slot(side_slot), _strip_pokemon_name(parts[2]))] = species
 
+    def _username_of(self, raw: str) -> str:
+        """Player who owns the Pokemon named by an ident like 'p1a: Name'."""
+        return self._side_to_name.get(_side_from_slot(raw.split(":")[0].strip()), "")
+
     def _species_of(self, raw: str) -> str:
         """Species for an ident like 'p1a: Name': by active slot first, then by (side, nickname)."""
         side_slot = raw.split(":")[0].strip()
@@ -696,6 +704,7 @@ class BattleLogParser:
             turn_no=self._current_turn,
             pokemon_name=pokemon_name,
             species=self._species_of(slot_raw),
+            username=self._username_of(slot_raw),
         ))
 
         # Resolve KO from pending damage
@@ -755,6 +764,7 @@ class BattleLogParser:
             turn_no=self._current_turn,
             pokemon_name=pokemon_name,
             species=self._species_of(parts[2]),
+            username=self._username_of(parts[2]),
             status_code=status_code,
         ))
 
@@ -770,6 +780,7 @@ class BattleLogParser:
             turn_no=self._current_turn,
             pokemon_name=pokemon_name,
             species=self._species_of(parts[2]),
+            username=self._username_of(parts[2]),
             ability_name=ability_name,
         ))
 
@@ -785,6 +796,7 @@ class BattleLogParser:
             turn_no=self._current_turn,
             pokemon_name=pokemon_name,
             species=self._species_of(parts[2]),
+            username=self._username_of(parts[2]),
             tera_type=tera_type,
         ))
 
@@ -1078,6 +1090,7 @@ class InMemoryDB:
                 "turn_no": f.turn_no,
                 "pokemon_name": f.pokemon_name,
                 "species": f.species,
+                "username": f.username,
             })
 
         # battle_switch
@@ -1106,6 +1119,7 @@ class InMemoryDB:
                 "turn_no": st.turn_no,
                 "pokemon_name": st.pokemon_name,
                 "species": st.species,
+                "username": st.username,
                 "status_code": st.status_code,
             })
 
@@ -1116,6 +1130,7 @@ class InMemoryDB:
                 "turn_no": ab.turn_no,
                 "pokemon_name": ab.pokemon_name,
                 "species": ab.species,
+                "username": ab.username,
                 "ability_name": ab.ability_name,
             })
 
@@ -1126,6 +1141,7 @@ class InMemoryDB:
                 "turn_no": te.turn_no,
                 "pokemon_name": te.pokemon_name,
                 "species": te.species,
+                "username": te.username,
                 "tera_type": te.tera_type,
             })
 
