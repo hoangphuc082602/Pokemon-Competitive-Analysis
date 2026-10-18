@@ -21,14 +21,19 @@ SPECIES_TABLES = ["battle_leads", "battle_switch", "battle_move", "battle_faint"
 
 
 def species_stats(path: Path) -> dict:
-    n = empty = masked = differs = 0
-    for b in pq.ParquetFile(path).iter_batches(columns=["pokemon_name", "species"], batch_size=1_000_000):
+    n = empty = masked = differs = no_user = 0
+    has_user = "username" in pq.ParquetFile(path).schema_arrow.names
+    cols = ["pokemon_name", "species"] + (["username"] if has_user else [])
+    for b in pq.ParquetFile(path).iter_batches(columns=cols, batch_size=1_000_000):
         sp, name = b.column("species"), b.column("pokemon_name")
         n += b.num_rows
         empty += pc.sum(pc.cast(pc.or_(pc.is_null(sp), pc.equal(sp, "")).fill_null(True), pa.int64())).as_py() or 0
         masked += pc.sum(pc.cast(pc.ends_with(sp, "*").fill_null(False), pa.int64())).as_py() or 0
         differs += pc.sum(pc.cast(pc.not_equal(sp, name).fill_null(False), pa.int64())).as_py() or 0
-    return {"rows": n, "empty": empty, "masked": masked, "nickname": differs}
+    if has_user:
+            u = b.column("username")
+            no_user += pc.sum(pc.cast(pc.or_(pc.is_null(u), pc.equal(u, "")).fill_null(True), pa.int64())).as_py() or 0
+    return {"rows": n, "empty": empty, "masked": masked, "nickname": differs, "no_user": no_user if has_user else None}
 
 
 def probe_values(out_dir: Path, needle: str) -> pd.Series:
@@ -71,7 +76,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     d = args.out_dir
 
-    print(f"{'table':<16}{'rows':>12}{'species empty':>15}{'masked (*)':>12}{'name!=species':>15}")
+    print(f"{'table':<16}{'rows':>12}{'species empty':>15}{'masked (*)':>12}{'name!=species':>15}{'no username':>13}")
     for t in SPECIES_TABLES:
         p = d / f"{t}.parquet"
         if not p.exists():
@@ -82,7 +87,8 @@ def main(argv=None) -> int:
             continue
         s = species_stats(p)
         pct = lambda x: f"{100 * x / max(s['rows'], 1):.2f}%"
-        print(f"{t:<16}{s['rows']:>12,}{pct(s['empty']):>15}{pct(s['masked']):>12}{pct(s['nickname']):>15}")
+        print(f"{t:<16}{s['rows']:>12,}{pct(s['empty']):>15}{pct(s['masked']):>12}{pct(s['nickname']):>15}"
+            f"{pct(s['no_user']) if s['no_user'] is not None else 'n/a':>13}")
 
     print(f"\nspecies containing '{args.probe}' in leads + switch:")
     print(probe_values(d, args.probe).head(10).to_string() or "  (none)")
