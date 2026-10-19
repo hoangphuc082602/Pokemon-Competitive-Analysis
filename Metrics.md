@@ -41,18 +41,35 @@ The scope is materialised as table `vgc_battles` (`migrations/002_vgc_battles.sq
 | Tera usage | `battle_tera` events for the species | team appearances where it was sent out |
 | Partner frequency | player-battles with both species on the team | player-battles with the first species |
 | Partner lift | P(A and B) / (P(A) x P(B)) | player-battles in the regulation |
+| Monthly usage | teams containing the species, in the UTC month of `upload_time` | completed player-battles of that regulation and month |
+| Matchup win rate | battles won by teams containing A | battles where a team with A faces a team with B (A != B) |
 
 Notes:
 - `was_sent_out` means "entered the field at least once". A Pokémon brought but never sent out counts as not sent out,
   so sent-out rates are a lower bound of the real bring rate.
 - Win-rate and usage figures are reported with `n` and a 95% Wilson interval; hide rows with `n < 100` player-battles.
 - Correlation is not causation: a high win rate for a species with a strong partner is not evidence the species is strong.
+- Win rates with and without Tera are **not comparable**: a Pokémon must still be on the field to Terastallize, so the
+  "no Tera" group contains the games where it fainted early (survivorship bias). Choosing when to Tera is also a decision.
+- Lift says two species are seen together more or less often than chance; it is not evidence that they work well together.
+- Months below 5% of the busiest month of their regulation are flagged `tail`: kept in the tables, excluded from charts, because
+  the population there is different (the format is ending; e.g. Incineroar 35% -> 17% -> 7% in the last two months of Reg F 2026).
+- The month is the upload month of the replay, not the day the battle was played.
+- Matchups are about **teams** containing the species, not the species on the field: the other Pokémon, the leads and the choice of
+  four are mixed in. The table is antisymmetric in band `all`; per rating band the band is that of A's player.
+- `expected_win_rate` is the log5 combination of the two teams' overall win rates and `win_rate_vs_expected` the remainder: teams with
+  rare species are often weaker, so a raw win rate against them overstates the matchup. The matchup `z` is nominal (battles of one
+  player and the games of a best-of-three are not independent, and many opponents are compared at once): treat |z| < 4 as noise.
+  At team level the largest deviations from expectation are a few percentage points.
 
 ## 4. Rating filter
 
 - `battle_players.rating_before` is the player's ladder rating before the battle. It is NULL for part of the data;
   rating-filtered metrics exclude NULL and must report the excluded share.
 - `battle.rating` is a battle-level value copied from the crawl when the log has none; its exact meaning is not yet confirmed.
+- Rating bands are per **player** (each side uses its own `rating_before`): `below_1200`, `1200_1399`, `1400_1499`, `1500_plus`
+  and `unknown` (NULL rating, 8.5% of VGC player-battles). `all` includes `unknown`. Band edges follow the observed
+  distribution (46% / 36% / 10% / 8% of rated player-battles) and are absolute, not per regulation.
 
 ## 5. Known limitations
 
@@ -60,3 +77,5 @@ Notes:
 - Arceus type forms and battle-only forms such as `Ogerpon-*-Tera` are not in the master data and are species-only (`unlisted`).
 - Per-player statistics need a deduplicated players table, which does not exist yet (`players` has one row per player-battle).
 - Damage and KO attribution (`battle_damage`, `battle_ko`) is heuristic; species columns identify forms but not the attacker with certainty.
+- Illusion (Zoroark): the log shows the disguise until `|replace|`, so sent-out counts of Zoroark and of the impersonated Pokémon can be
+  off by a few games (one Tera / sent-out inconsistency was observed: 11 Tera events vs 10 sent out).
