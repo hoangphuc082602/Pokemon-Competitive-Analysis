@@ -81,16 +81,29 @@ def popularity_vs_success(usage: pd.DataFrame, min_teams: int = 2000, band: str 
     return pd.DataFrame(rows, columns=["regulation", "species", "spearman_usage_vs_win_delta"])
 
 
-def popularity_by_band(usage: pd.DataFrame, min_teams_band: int = 500) -> pd.DataFrame:
-    """The same correlation inside each rating band. Strong players pick popular species AND win more, so a positive
-    correlation over all players may come from rating alone; inside a band that mixing is mostly removed."""
+def popularity_by_band(usage: pd.DataFrame, min_teams_band: int = 500, reference_band: str = "1500_plus", min_species: int = 10) -> pd.DataFrame:
+    """The same correlation per rating band, on ONE species set per regulation: the species with at least `min_teams_band` teams in
+    `reference_band`. Each band uses its own baseline, but the species list is identical in every band, so a difference between bands is
+    not a difference in which species are counted (weak bands also contain a long tail of rarely used species that strong bands do not).
+    `species` is the size of that set. Regulations with fewer than `min_species` species are left out."""
     bands = [ALL, "below_1200", "1200_1399", "1400_1499", "1500_plus"]
-    wide = None
-    for b in bands:
-        t = popularity_vs_success(usage, 2000 if b == ALL else min_teams_band, b)
-        t = t.set_index("regulation")["spearman_usage_vs_win_delta"].rename(b)
-        wide = t.to_frame() if wide is None else wide.join(t, how="outer")
-    return wide.reset_index() if wide is not None else pd.DataFrame(columns=["regulation"] + bands)
+    levels = {b: _species_level(usage, b) for b in dict.fromkeys(bands + [reference_band])}
+    rows = []
+    for reg, ref in levels[reference_band].groupby("regulation"):
+        keep = set(ref.loc[ref["appearances"] >= min_teams_band, "species_id"])
+        if len(keep) < min_species:
+            continue
+        row = {"regulation": reg, "species": len(keep)}
+        for b in bands:
+            whole = levels[b][levels[b]["regulation"] == reg]
+            g = whole[whole["species_id"].isin(keep)]
+            if len(g) < min_species:
+                row[b] = np.nan
+                continue
+            g = g.assign(delta=g["wins"] / g["appearances"] - whole["wins"].sum() / whole["appearances"].sum())
+            row[b] = round(float(g["usage"].corr(g["delta"], method="spearman")), 2)
+        rows.append(row)
+    return pd.DataFrame(rows, columns=["regulation", "species"] + bands)
 
 
 def tera_profile(summary: pd.DataFrame, types: pd.DataFrame, min_events: int = 5000) -> pd.DataFrame:
@@ -226,8 +239,10 @@ def build_report(agg: Path, out: Path, plots: bool = True, min_player_battles: i
     md += ["## 4. Does popularity predict win rate?", "",
            "Rank correlation between a species' usage and its win rate minus the regulation baseline (species with at least 2,000 teams). "
            "A value near 0 means popular species are not systematically better or worse.", "", md_table(pv),
-           "Strong players pick popular species and also win more, so this can be a rating effect. The same correlation inside each "
-           "rating band (baseline of that band; species with at least 500 teams in a band) removes most of that mixing:", "",
+           "Strong players pick popular species and also win more, so part of this could be a rating effect. A second view computes the same "
+           "correlation inside each rating band (baseline of that band) on one fixed species set per regulation: the species with at least 500 teams "
+           "among players rated 1500+ (`species` counts them). The species list is then the same in every band, so differences between bands "
+           "are not caused by which species are counted; the `all` column uses the same set:", "",
            md_table(_ordered(popularity_by_band(usage), order, label))]
 
     if tera_s is not None and tera_t is not None:

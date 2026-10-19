@@ -76,18 +76,18 @@ Rank correlation between a species' usage and its win rate minus the regulation 
 | Reg I 2026 | 101 | 0.53 |
 | Champions Reg M-A 2026 | 79 | -0.07 |
 
-Strong players pick popular species and also win more, so this can be a rating effect. The same correlation inside each rating band (baseline of that band; species with at least 500 teams in a band) removes most of that mixing:
+Strong players pick popular species and also win more, so part of this could be a rating effect. A second view computes the same correlation inside each rating band (baseline of that band) on one fixed species set per regulation: the species with at least 500 teams among players rated 1500+ (`species` counts them). The species list is then the same in every band, so differences between bands are not caused by which species are counted; the `all` column uses the same set:
 
-| regulation | all | below_1200 | 1200_1399 | 1400_1499 | 1500_plus |
-|---|---|---|---|---|---|
-| Reg F 2024 | 0.48 | 0.53 | 0.4 | 0.27 | 0.21 |
-| Reg G 2024 | 0.6 | 0.64 | 0.39 | 0.33 | 0.28 |
-| Reg I 2025 | 0.65 | 0.63 | 0.56 | 0.26 | 0.21 |
-| Reg H 2025 | 0.59 | 0.56 | 0.4 | 0.17 | 0.21 |
-| Reg J 2025 | 0.56 | 0.57 | 0.39 | 0.01 | 0.15 |
-| Reg F 2026 | 0.61 | 0.54 | 0.59 | 0.37 | 0.37 |
-| Reg I 2026 | 0.53 | 0.54 | 0.43 | -0.12 | -0.14 |
-| Champions Reg M-A 2026 | -0.07 | -0.04 | -0.23 | 0.11 | 0.2 |
+| regulation | species | all | below_1200 | 1200_1399 | 1400_1499 | 1500_plus |
+|---|---|---|---|---|---|---|
+| Reg F 2024 | 79 | 0.3 | 0.3 | 0.19 | 0.19 | 0.21 |
+| Reg G 2024 | 107 | 0.27 | 0.3 | 0.12 | 0.18 | 0.28 |
+| Reg I 2025 | 71 | 0.33 | 0.31 | 0.12 | -0.14 | 0.21 |
+| Reg H 2025 | 55 | 0.4 | 0.34 | 0.22 | 0.06 | 0.21 |
+| Reg J 2025 | 52 | 0.24 | 0.34 | 0.11 | -0.4 | 0.15 |
+| Reg F 2026 | 68 | 0.31 | 0.31 | 0.11 | 0.25 | 0.37 |
+| Reg I 2026 | 27 | -0.39 | -0.2 | -0.39 | -0.44 | -0.14 |
+| Champions Reg M-A 2026 | 26 | 0.23 | 0.13 | 0.19 | 0.19 | 0.2 |
 
 ## 5. How predictable is the Tera type?
 

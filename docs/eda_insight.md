@@ -41,16 +41,13 @@ from 39.2% to 30.9% (-8.2 pp) and Rillaboom from 21.6% to 17.8% (-3.8 pp).
 species are chosen more by weaker ones. Check: compute pair shares per rating band (the partner table already has the bands). A caution:
 players who publish replays are a self-selected group, so this describes who uploads, not all players.
 
-## 4. Popularity correlates with win rate, but rating may be the reason
+## 4. Popularity correlates with win rate in every rating band; rating does not explain it
 
-**Fact.** In the seven Scarlet/Violet regulations the rank correlation between a species' usage and its win rate minus the baseline is
-0.48 to 0.65. In Champions Reg M-A (79 species) it is -0.07.
+**Fact.** Over all players and the species with at least 2,000 teams, the rank correlation between usage and win rate minus the baseline is 0.48 to 0.65 in the seven Scarlet/Violet regulations. Inside rating bands, on the species with at least 2,000 teams below 1200 (95-140 species), the unweighted mean over six regulations is 0.54 below 1200, 0.49 at 1200-1399, 0.42 at 1400-1499 and 0.43 at 1500+, and every cell is positive (0.28 to 0.71). On the narrower set of species with at least 500 teams at 1500+ (52-107 species) the same means are 0.32, 0.15, 0.02 and 0.24. Champions Reg M-A is about 0 on the wider set (0.08 overall) and 0.2 on the narrow one.
 
-**Interpretation.** Popular species tend to have higher win rates in this population.
+**Interpretation.** Usage and win rate move together at every rating, and the drop from the weakest to the strongest band (about 0.1) is within noise, so rating does not explain the link. Its size depends on the species counted: most of it comes from rarely used species winning less, and among the most used species it is weaker (about 0.2 to 0.3). This is correlation, not cause.
 
-**Hypothesis.** Part or all of this is a rating effect: section 3 shows strong players choose the popular species more, and strong players
-win more whatever they pick. Check (now in the generated report): the same correlation inside each rating band, with each band's own
-baseline. If it falls toward 0 inside the bands, popularity is not what predicts winning. The result is not interpreted here until that table exists.
+**Hypothesis.** Rarely used species may win less because they are weaker or less well played; the data cannot separate the two. Champions Reg M-A (new game, 85k battles) may differ because its meta has not settled. Reg I 2026 turns negative on a 27-species set only, which is too small to read.
 
 ## 5. About one in five sent-out Pokémon Terastallizes, and the type is only partly predictable
 
