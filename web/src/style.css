@@ -54,4 +54,64 @@ tbody tr:last-child td { border-bottom: 0; }
 .down { color: var(--down); }
 .tag { font-size: 0.75rem; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
 .note { color: var(--muted); font-size: 0.85rem; max-width: 75ch; }
+.note strong { color: var(--text); }
+h3 { font-size: 1.05rem; margin: 20px 0 8px; }
+td a { color: var(--accent); text-decoration: none; }
+td a:hover { text-decoration: underline; }
 footer { color: var(--muted); font-size: 0.85rem; padding: 24px 16px 40px; }
+.chart { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 8px; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chart .grid { stroke: var(--border); stroke-width: 1; }
+.chart .axis { fill: var(--muted); font-size: 11px; }
+.chart .series { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.chart .dot.thin { fill: var(--surface); stroke: var(--accent); }
+.chart .hit { fill: transparent; }
+.chart .pt:hover .dot, .chart .pt:focus .dot { r: 6; }
+.chart .pt:focus { outline: none; }
+.chart .plot { position: relative; }
+/* Tooltip: always dark (same in light and dark mode), key figures highlighted */
+.chart .tip {
+  --tip-bg: #000000; --tip-text: #f2f2f2; --tip-muted: #a3a6ab; --tip-value: #3ddfeb; --tip-line: #2a2b2e;
+  position: absolute; z-index: 1; pointer-events: none; min-width: 210px; max-width: 290px; width: max-content;
+  transform: translate(-50%, var(--ty));
+  background: var(--tip-bg); color: var(--tip-text); border: 1px solid var(--tip-line); border-radius: 8px;
+  padding: 8px 10px; font-size: 0.8rem; line-height: 1.45; box-shadow: 0 6px 20px rgb(0 0 0 / 0.35);
+  font-variant-numeric: tabular-nums;
+}
+.chart .tip[data-align="start"] { transform: translate(-12px, var(--ty)); }
+.chart .tip[data-align="end"] { transform: translate(calc(-100% + 12px), var(--ty)); }
+.chart .tip[hidden] { display: none; }
+.chart .tip-head {
+  font-weight: 600; color: var(--tip-text); padding-bottom: 6px; margin-bottom: 6px;
+  border-bottom: 1px solid var(--tip-line);
+}
+.chart .tip-row { display: grid; grid-template-columns: 64px auto 1fr; align-items: baseline; gap: 8px; }
+.chart .tip-label { color: var(--tip-muted); }
+.chart .tip-value { color: var(--tip-value); font-weight: 700; font-size: 0.95rem; }
+.chart .tip-detail { color: var(--tip-muted); text-align: right; white-space: nowrap; }
+.chart .tip-warn {
+  margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--tip-line); color: var(--tip-text);
+}
+.chart .tip-warn::before { content: "⚠ "; color: var(--tip-value); }
+
+/* Table footer with pagination, joined to the bottom of the table box */
+.table-scroll.joined { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.pager {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  padding: 8px 10px; border: 1px solid var(--border); border-top: 0; border-radius: 0 0 8px 8px;
+  background: var(--surface); font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.pager-info strong { color: var(--text); font-weight: 600; }
+.pager-controls, .pager-numbers { display: flex; align-items: center; gap: 4px; }
+.pager button {
+  font: inherit; min-width: 32px; height: 32px; padding: 0 8px; border-radius: 6px; cursor: pointer;
+  color: var(--text); background: transparent; border: 1px solid transparent;
+}
+.pager button:hover:not(:disabled) { background: var(--bg); border-color: var(--border); }
+.pager button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pager button[aria-current="page"] { background: var(--accent); color: var(--surface); font-weight: 600; }
+.pager .pager-step { font-size: 1.1rem; line-height: 1; border-color: var(--border); }
+.pager button:disabled { opacity: 0.35; cursor: default; }
+.pager-gap { min-width: 20px; text-align: center; }
+details.note summary { cursor: pointer; margin: 4px 0; }

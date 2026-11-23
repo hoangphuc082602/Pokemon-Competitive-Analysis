@@ -48,7 +48,7 @@ The scope is materialised as table `vgc_battles` (`migrations/002_vgc_battles.sq
 | Tera usage | `battle_tera` events for the species | team appearances where it was sent out |
 | Partner frequency | player-battles with both species on the team | player-battles with the first species |
 | Partner lift | P(A and B) / (P(A) x P(B)) | player-battles in the regulation |
-| Monthly usage | teams containing the species, in the UTC month of `upload_time` | completed player-battles of that regulation and month |
+| Monthly usage | teams containing the species, in the UTC month of `upload_time` | completed player-battles of that regulation, month and rating band |
 | Matchup win rate | battles won by teams containing A | battles where a team with A faces a team with B (A != B) |
 
 Notes:

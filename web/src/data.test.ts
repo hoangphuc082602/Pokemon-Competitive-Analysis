@@ -3,9 +3,17 @@ import {
   DataError,
   SCHEMA_VERSION,
   filterRows,
+  chartPoints,
   formNote,
+  loadPairFile,
   loadTeamUsage,
+  loadTeraFile,
+  loadTrendFile,
+  pageList,
+  paginate,
   parseManifest,
+  speciesEntry,
+  teraEntry,
   readFilters,
   selectFile,
   writeFilters,
@@ -30,6 +38,13 @@ const manifest = (over: Record<string, unknown> = {}) => ({
       { regulation: "regA", rating_band: "1500_plus", path: "team_usage/regA__1500_plus.json", rows: 1, bytes: 10 },
       { regulation: "regB", rating_band: "all", path: "team_usage/regB__all.json", rows: 1, bytes: 10 },
     ],
+    partners: [
+      { regulation: "regA", rating_band: "all", path: "partners/regA__all.json", rows: 1, bytes: 10 },
+      { regulation: "regA", rating_band: "1500_plus", path: "partners/regA__1500_plus.json", rows: 1, bytes: 10 },
+    ],
+    matchups: [{ regulation: "regA", rating_band: "1500_plus", path: "matchups/regA__1500_plus.json", rows: 1, bytes: 10 }],
+    trend: [{ regulation: "regA", rating_band: "1500_plus", path: "trend/regA__1500_plus.json", rows: 1, bytes: 10 }],
+    tera: [{ regulation: "regA", rating_band: "1500_plus", path: "tera/regA__1500_plus.json", rows: 1, bytes: 10 }],
   },
   ...over,
 });
@@ -109,6 +124,30 @@ describe("filterRows", () => {
   });
 });
 
+describe("paginate", () => {
+  const rows = Array.from({ length: 32 }, (_, i) => i + 1);
+
+  it("cuts pages of the given size and reports the shown range", () => {
+    expect(paginate(rows, 1, 15)).toEqual({ rows: rows.slice(0, 15), page: 1, pages: 3, from: 1, to: 15 });
+    expect(paginate(rows, 3, 15)).toEqual({ rows: [31, 32], page: 3, pages: 3, from: 31, to: 32 });
+  });
+
+  it("lists the page buttons: first, last, current ±1, with gaps as an ellipsis", () => {
+    expect(pageList(1, 17)).toEqual([1, 2, "…", 17]);
+    expect(pageList(3, 17)).toEqual([1, 2, 3, 4, "…", 17]);
+    expect(pageList(6, 17)).toEqual([1, "…", 5, 6, 7, "…", 17]);
+    expect(pageList(17, 17)).toEqual([1, "…", 16, 17]);
+    expect(pageList(2, 4)).toEqual([1, 2, 3, 4]);
+    expect(pageList(1, 1)).toEqual([1]);
+  });
+
+  it("clamps an out-of-range page and handles an empty list", () => {
+    expect(paginate(rows, 9, 15).page).toBe(3);
+    expect(paginate(rows, 0, 15).page).toBe(1);
+    expect(paginate([], 2, 15)).toEqual({ rows: [], page: 1, pages: 1, from: 0, to: 0 });
+  });
+});
+
 describe("form rows", () => {
   const forms = [
     row("Calyrex", 2, { form: "calyrex-shadow", label: "Calyrex-Shadow" }),
@@ -132,12 +171,127 @@ describe("URL filters", () => {
   const m = parseManifest(manifest()) as Manifest;
 
   it("round-trips regulation, band and search", () => {
-    const qs = writeFilters({ regulation: "regA", band: "1500_plus", query: "inc" });
-    expect(readFilters(qs, m)).toEqual({ regulation: "regA", band: "1500_plus", query: "inc" });
+    const qs = writeFilters({ regulation: "regA", band: "1500_plus", query: "inc", species: null });
+    expect(readFilters(qs, m)).toEqual({ regulation: "regA", band: "1500_plus", query: "inc", species: null });
+  });
+
+  it("round-trips the selected species so a species detail view is linkable", () => {
+    const qs = writeFilters({ regulation: "regA", band: "all", query: "", species: 727 });
+    expect(qs).toBe("?reg=regA&band=all&sp=727");
+    expect(readFilters(qs, m).species).toBe(727);
   });
 
   it("falls back to valid defaults for unknown values", () => {
-    expect(readFilters("?reg=nope&band=nope", m)).toEqual({ regulation: "regA", band: "all", query: "" });
-    expect(readFilters("?reg=regB&band=1500_plus", m)).toEqual({ regulation: "regB", band: "all", query: "" });
+    expect(readFilters("?reg=nope&band=nope&sp=x", m)).toEqual({ regulation: "regA", band: "all", query: "", species: null });
+    expect(readFilters("?reg=regB&band=1500_plus", m)).toEqual({ regulation: "regB", band: "all", query: "", species: null });
+  });
+});
+
+describe("partners and matchups", () => {
+  const m = parseManifest(manifest()) as Manifest;
+  const partner = (species_id: number, species: string, n: number) => ({
+    species_id, species, n, share: 0.5, lift: 1.8, win_rate: 0.6, win_ci_low: 0.5, win_ci_high: 0.7, win_rate_delta: 0.05 });
+  const file = { regulation: "regA", rating_band: "1500_plus", min_n: 100,
+                 rows: [{ species_id: 727, species: "Incineroar", partners: [partner(892, "Urshifu", 150)] }] };
+
+  it("requires the partners and matchups datasets of a v3 manifest", () => {
+    const { partners: _p, ...rest } = manifest().datasets;
+    expect(() => parseManifest(manifest({ datasets: rest }))).toThrow(expect.objectContaining({ code: "invalid" }));
+  });
+
+  it("loads exactly the selected regulation x band file", async () => {
+    const urls: string[] = [];
+    const data = await loadPairFile(m, "partners", "regA", "1500_plus", async (u) => { urls.push(u); return file; }, "d/");
+    expect(urls).toEqual(["d/partners/regA__1500_plus.json"]);
+    expect(speciesEntry(data, 727)?.partners?.map((p) => p.species)).toEqual(["Urshifu"]);
+    expect(speciesEntry(data, 1)).toBeUndefined();
+  });
+
+  it("never substitutes another band when the selected band has no file", async () => {
+    await expect(loadPairFile(m, "matchups", "regA", "all", async () => file, "")).rejects
+      .toThrow(expect.objectContaining({ code: "not-found" }));
+  });
+
+  it("rejects a file of another band", async () => {
+    await expect(loadPairFile(m, "partners", "regA", "all", async () => file, "")).rejects
+      .toThrow(expect.objectContaining({ code: "mismatch" }));
+  });
+});
+
+describe("monthly trend", () => {
+  const m = parseManifest(manifest()) as Manifest;
+  const point = (month: string, usage_share: number) =>
+    ({ month, n: 150, usage_share, win_rate: 0.5, win_ci_low: 0.4, win_ci_high: 0.6 });
+  const file = {
+    regulation: "regA", rating_band: "1500_plus", min_n: 100,
+    months: [
+      { month: "2024-01", player_battles: 1000, tail: false },
+      { month: "2024-02", player_battles: 900, tail: false },
+      { month: "2024-03", player_battles: 800, tail: false },
+      { month: "2024-04", player_battles: 30, tail: true },
+    ],
+    rows: [{ species_id: 727, species: "Incineroar",
+             points: [point("2024-01", 0.4), point("2024-03", 0.3), point("2024-04", 0.1)] }],   // 2024-02: n < 100
+  };
+
+  it("requires the trend and tera datasets of a v4 manifest", () => {
+    const { trend: _t, ...rest } = manifest().datasets;
+    expect(() => parseManifest(manifest({ datasets: rest }))).toThrow(expect.objectContaining({ code: "invalid" }));
+    const { tera: _x, ...rest2 } = manifest().datasets;
+    expect(() => parseManifest(manifest({ datasets: rest2 }))).toThrow(expect.objectContaining({ code: "invalid" }));
+  });
+
+  it("loads exactly the selected regulation x band file and never another band", async () => {
+    const urls: string[] = [];
+    await loadTrendFile(m, "regA", "1500_plus", async (u) => { urls.push(u); return file; }, "d/");
+    expect(urls).toEqual(["d/trend/regA__1500_plus.json"]);
+    await expect(loadTrendFile(m, "regA", "all", async () => file, "")).rejects
+      .toThrow(expect.objectContaining({ code: "not-found" }));
+  });
+
+  it("charts the non-tail months, leaves gaps for hidden points and discloses the tail months", () => {
+    const c = chartPoints(file, 727);
+    expect(c.months).toEqual(["2024-01", "2024-02", "2024-03"]);
+    expect(c.points.map((p) => [p.month, p.usage_share])).toEqual([["2024-01", 0.4], ["2024-03", 0.3]]);
+    expect(c.tailMonths).toEqual(["2024-04"]);
+    expect(c.hiddenTailPoints).toBe(1);
+  });
+
+  it("gives the band's battles of each charted month and flags months with few battles in this band", () => {
+    // tail is per regulation, so a band can have a tiny month that is still charted
+    const thin = { ...file, months: file.months.map((x) => (x.month === "2024-03" ? { ...x, player_battles: 40 } : x)) };
+    const c = chartPoints(thin, 727);
+    expect(c.monthBattles).toEqual({ "2024-01": 1000, "2024-02": 900, "2024-03": 40 });
+    expect(c.thinMonths).toEqual(["2024-03"]);   // 40 < 5% of the band's busiest month (1000)
+    expect(chartPoints(file, 727).thinMonths).toEqual([]);
+  });
+
+  it("gives an empty series for a species without points", () => {
+    const c = chartPoints(file, 1);
+    expect(c.points).toEqual([]);
+    expect(c.tailMonths).toEqual(["2024-04"]);
+    expect(c.hiddenTailPoints).toBe(0);
+  });
+});
+
+describe("tera", () => {
+  const m = parseManifest(manifest()) as Manifest;
+  const file = { regulation: "regA", rating_band: "1500_plus", min_n: 100,
+                 rows: [{ species_id: 727, species: "Incineroar", n: 400, tera_events: 150, tera_rate: 0.375,
+                          tera_rate_ci_low: 0.33, tera_rate_ci_high: 0.42, win_rate_tera: 0.6, win_rate_no_tera: null,
+                          types: [{ tera_type: "Ghost", events: 120, type_share: 0.8 }] }] };
+
+  it("loads the band's file and finds a species", async () => {
+    const urls: string[] = [];
+    const data = await loadTeraFile(m, "regA", "1500_plus", async (u) => { urls.push(u); return file; }, "d/");
+    expect(urls).toEqual(["d/tera/regA__1500_plus.json"]);
+    expect(teraEntry(data, 727)?.types.map((t) => t.tera_type)).toEqual(["Ghost"]);
+    expect(teraEntry(data, 1)).toBeUndefined();
+  });
+
+  it("rejects a file of another band", async () => {
+    const other = { ...file, rating_band: "all" };
+    await expect(loadTeraFile(m, "regA", "1500_plus", async () => other, "")).rejects
+      .toThrow(expect.objectContaining({ code: "mismatch" }));
   });
 });

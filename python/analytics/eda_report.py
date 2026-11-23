@@ -43,6 +43,8 @@ def concentration(usage: pd.DataFrame) -> pd.DataFrame:
 def stability(monthly: pd.DataFrame, top: int = 30, min_player_battles: int = 20000) -> pd.DataFrame:
     """Mean rank correlation (Spearman) of species usage between consecutive months, non-tail months only."""
     rows = []
+    if "rating_band" in monthly.columns:                 # bands repeat the 'all' rows (BR-08)
+        monthly = monthly[monthly["rating_band"] == "all"]
     for reg, g in monthly.groupby("regulation"):
         g = g[(~g["tail"].astype(bool)) & (g["player_battles"] >= min_player_battles) & (g["month"] != "unknown")]
         wide = g.pivot_table(index="species_id", columns="month", values="usage_share", fill_value=0.0)

@@ -32,7 +32,7 @@
           <label>Search <input id="search" type="search" placeholder="Species or form" autocomplete="off" /></label>
         </form>
         <p id="context" class="context" aria-live="polite"></p>
-        <div class="table-scroll">
+        <div class="table-scroll joined">
           <table id="usage">
             <thead>
               <tr>
@@ -49,13 +49,131 @@
             <tbody></tbody>
           </table>
         </div>
+        <nav class="pager" aria-label="Team usage pages">
+          <span id="page-info" class="pager-info" aria-live="polite"></span>
+          <div class="pager-controls">
+            <button type="button" id="page-prev" class="pager-step" aria-label="Previous page">‹</button>
+            <span id="page-numbers" class="pager-numbers"></span>
+            <button type="button" id="page-next" class="pager-step" aria-label="Next page">›</button>
+          </div>
+        </nav>
         <p class="note">
           Unit: player-battle (one team in one completed battle); Bo3 games are not independent. One row per form:
           forms of a species are never summed. Forms hidden at team preview (e.g. Urshifu) are labelled “(seen in battle)”
           (n counts only teams where that form was sent out; a separate row from teams that named it at team preview) or “never sent out” (form unknown, not guessed); forms
           missing from the master data (e.g. Arceus type forms) are tagged “species level”. “vs band” compares with the selected band's
           own baseline, not with 50%. Win rates describe teams that brought the form — correlation, not causation.
+          Click a Pokémon to see its partners, matchups, monthly usage and Tera.
         </p>
+      </section>
+
+      <section id="detail" aria-labelledby="detail-title">
+        <h2 id="detail-title">Species detail: partners, matchups, monthly usage, Tera</h2>
+        <form class="filters" onsubmit="return false">
+          <label>Species <select id="species"></select></label>
+        </form>
+        <p id="detail-context" class="context" aria-live="polite"></p>
+        <div id="detail-body" hidden>
+          <h3>Most frequent partners</h3>
+          <div class="table-scroll">
+            <table id="partners">
+              <thead>
+                <tr>
+                  <th scope="col">Partner</th>
+                  <th scope="col" class="num" title="Teams that brought both species">n teams</th>
+                  <th scope="col" class="num" title="Share of the selected species' teams that also brought this partner">Share</th>
+                  <th scope="col" class="num" title="Seen together this many times more often than if teams were picked at random (1 = chance)">Lift</th>
+                  <th scope="col" class="num">Win rate</th>
+                  <th scope="col" class="num" title="95% Wilson interval">95% CI</th>
+                  <th scope="col" class="num" title="Win rate of teams with both minus the band baseline, in percentage points">vs band</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="note">
+            <strong>Lift is co-occurrence, not synergy.</strong> Lift = P(both on a team) ÷ (P(A) × P(B)): above 1 means
+            players bring the two together more often than chance. It says nothing about whether the pair works well;
+            the win rate of teams with both is shown separately, against the band baseline.
+          </p>
+
+          <h3>Team-level matchups</h3>
+          <div class="table-scroll">
+            <table id="matchups">
+              <thead>
+                <tr>
+                  <th scope="col">Opposing team has</th>
+                  <th scope="col" class="num" title="Battles between a team with the selected species and a team with this one">n battles</th>
+                  <th scope="col" class="num">Win rate</th>
+                  <th scope="col" class="num" title="95% Wilson interval">95% CI</th>
+                  <th scope="col" class="num" title="log5 of the selected species' teams' win rate in this band and the opponent's teams' win rate over the whole regulation">Expected</th>
+                  <th scope="col" class="num" title="Win rate minus the log5 expectation, in percentage points">vs expected</th>
+                  <th scope="col" class="num" title="(win rate − expected) ÷ nominal standard error; |z| &lt; 4 is treated as noise">z</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="note">
+            <strong>Matchups are team-level, not on-field.</strong> A row compares teams that brought the selected species
+            with teams that brought the opponent; the other five Pokémon, leads and the choice of four are mixed in, so a
+            low win rate is not proof of a counter. <strong>Expected</strong> is the log5 estimate from both teams' overall
+            win rates (p<sub>A</sub>(1−p<sub>B</sub>) ÷ [p<sub>A</sub>(1−p<sub>B</sub>) + p<sub>B</sub>(1−p<sub>A</sub>)]),
+            (p<sub>A</sub>: the selected species' teams in this band; p<sub>B</sub>: the opponent's teams over the whole
+            regulation), so weak or strong opponents do not show up as matchups by themselves. Listed: the matchups
+            furthest below and above that expectation (by z), sorted by win rate, highest first. <strong>z is nominal</strong>: games of a
+            best-of-three and one player's battles are not independent and many opponents are compared at once, so
+            |z| &lt; 4 is treated as noise and left uncoloured. In a rating band, the band is the selected species' player's.
+          </p>
+
+          <h3>Monthly usage</h3>
+          <p id="trend-context" class="context"></p>
+          <div id="trend-chart" class="chart"></div>
+          <p id="trend-tail" class="note"></p>
+          <details class="note">
+            <summary>Table view</summary>
+            <div class="table-scroll">
+              <table id="trend-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Month</th>
+                    <th scope="col" class="num" title="Teams that brought the species that month">n teams</th>
+                    <th scope="col" class="num" title="Share of that month's player-battles in this regulation and band">Usage</th>
+                    <th scope="col" class="num">Win rate</th>
+                    <th scope="col" class="num" title="95% Wilson interval">95% CI</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </details>
+          <p class="note">
+            Month = the UTC month the replay was <strong>uploaded</strong>, not the day the battle was played. Usage = teams
+            with the species ÷ player-battles of that month, in this rating band only. Months where the species has fewer
+            than 100 teams are gaps, not zeros.
+          </p>
+
+          <h3>Tera</h3>
+          <p id="tera-context" class="context"></p>
+          <div class="table-scroll">
+            <table id="tera">
+              <thead>
+                <tr>
+                  <th scope="col">Tera type</th>
+                  <th scope="col" class="num" title="Times this species Terastallized into this type (once per player-battle)">Tera events</th>
+                  <th scope="col" class="num" title="Share of this species' Tera events">Share</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="note">
+            Tera rate = Tera events ÷ team appearances where the species was sent out. <strong>Win rates with and without
+            Tera are not comparable</strong>: a Pokémon must still be on the field to Terastallize, so the “without Tera”
+            games include those where it fainted early (survivorship bias), and players choose when to Tera. The gap is
+            not the effect of Terastallizing.
+          </p>
+        </div>
       </section>
     </main>
 
