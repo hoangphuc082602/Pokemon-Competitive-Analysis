@@ -365,18 +365,25 @@ def _write_pair_files(out: Path, dataset: str, d: pd.DataFrame | None, columns: 
     return files
 
 
+def has_master(master: Path | None) -> bool:
+    return master is not None and all((Path(master) / f).exists() for f in MASTER_FILES)
+
+
 def form_master(master: Path | None) -> pd.DataFrame | None:
     """PokéAPI typing and base stats per form, keyed by poke_id (the /pokemon id, >= 10001 for alternate forms):
     poke_id, type_1, type_2 (None for a monotype or a form without type rows), six base stats.
     None when `master` is None or lacks one of MASTER_FILES. Mechanics only (BR-16): nothing from Showdown."""
-    if master is None or not all((Path(master) / f).exists() for f in MASTER_FILES):
+    if not has_master(master):
         return None
     frames = {}
     for name in MASTER_FILES:
         df = pd.read_csv(Path(master) / name)        # small master tables (~1.3k rows), not event data
         check_columns(df.columns, name)
         frames[name] = df
-    stats = frames["stats_raw.csv"][["poke_id", *STAT_COLUMNS]].astype("int64")
+    stats = frames["stats_raw.csv"][["poke_id", *STAT_COLUMNS]]
+    if stats.isna().any().any():
+        raise ExportError(f"stats_raw.csv has missing values for poke_id {stats.loc[stats.isna().any(axis=1), 'poke_id'].tolist()[:5]}")
+    stats = stats.astype("int64")
     if stats["poke_id"].duplicated().any():
         raise ExportError(f"stats_raw.csv repeats poke_id {stats.loc[stats['poke_id'].duplicated(), 'poke_id'].tolist()[:5]}")
     names = dict(zip(frames["data_type.csv"]["type_id"].astype("int64"), frames["data_type.csv"]["type"].astype(str)))
@@ -554,7 +561,7 @@ def main(argv=None) -> int:
     print(f"  checks: every form has a poke_id: {all(f['poke_id'] is not None for f in forms)}; "
           f"forms without typing: {len(no_type)} {no_type[:10]}; without base stats: {len(no_stats)} {no_stats[:10]}; "
           f"alternate forms (poke_id >= 10001): {sum(f['poke_id'] >= 10001 for f in forms)}"
-          + ("" if form_master(args.master) is not None else f" (master CSVs not found in {args.master})"))
+          + ("" if has_master(args.master) else f" (master CSVs not found in {args.master})"))
     for ds, key, job in (("partners", "partners", "partner_stats"), ("matchups", "opponents", "matchup_stats"),
                          ("trend", "points", "usage_trend"), ("tera", None, "tera_stats")):
         fs = m["datasets"][ds]

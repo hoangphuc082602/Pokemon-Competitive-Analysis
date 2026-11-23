@@ -1,13 +1,14 @@
 """Crawl PokéAPI typing per /pokemon entry -> data/raw/pokemon_type_raw.csv (pokemon_id, type_id, slot).
 
     python -m python.crawl_data.data_pokemon                       # every /pokemon entry, incl. alternate forms (ids >= 10001)
-    python -m python.crawl_data.data_pokemon --ids 892 10191 --no-sql   # small test range
+    python -m python.crawl_data.data_pokemon --ids 892 10191      # small test range (add --to-mysql to load MySQL)
 
 pokemon_id is the PokéAPI /pokemon id (= poke_id of pokemon_stats / pokemon_usage_stats), so alternate forms
 (e.g. urshifu-rapid-strike = 10191) get their own typing (#25). Resumable: ids already in the output CSV are skipped
 and each pokemon's rows are appended as soon as they are fetched. Rate-limited (--delay). Failures (HTTP error, no
 types) are logged and written to pokemon_type_failures.csv (this run's failures only; a rerun retries them).
-With --no-sql the MySQL table pokemon_types is not replaced; otherwise it is rebuilt from the full CSV at the end.
+With --to-mysql the MySQL table pokemon_types is rebuilt from the full CSV at the end (if_exists="replace"); it then
+also holds alternate forms, which python/database/pokemon_loader.py LEFT JOINs from pokemon_stats on poke_id.
 """
 from __future__ import annotations
 
@@ -55,12 +56,14 @@ def crawl_types(ids: Iterable[int], fetch: Callable[[int], dict], out_csv: Path,
         writer = csv.DictWriter(fh, fieldnames=COLUMNS)
         if new_file:
             writer.writeheader()
-        for i, pid in enumerate(ids):
+        fetched = 0
+        for pid in ids:
             if pid in done:
                 counts["already_done"] += 1
                 continue
-            if i and delay:
+            if fetched and delay:
                 time.sleep(delay)
+            fetched += 1
             try:
                 rows = extract_types(fetch(pid))
             except (requests.RequestException, ValueError, KeyError, RuntimeError) as e:
@@ -89,7 +92,7 @@ def main(argv=None) -> int:
     ap.add_argument("--out", type=Path, default=Path("data/raw/pokemon_type_raw.csv"))
     ap.add_argument("--failures", type=Path, default=Path("data/raw/pokemon_type_failures.csv"))
     ap.add_argument("--delay", type=float, default=0.2, help="seconds between requests")
-    ap.add_argument("--no-sql", action="store_true", help="do not rebuild the MySQL table pokemon_types")
+    ap.add_argument("--to-mysql", action="store_true", help="rebuild the MySQL table pokemon_types from the CSV")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -108,7 +111,7 @@ def main(argv=None) -> int:
           f"({df.loc[df['pokemon_id'] < ALTERNATE_FORM_MIN_ID, 'pokemon_id'].nunique()} base forms, "
           f"{df.loc[df['pokemon_id'] >= ALTERNATE_FORM_MIN_ID, 'pokemon_id'].nunique()} alternate forms), "
           f"{len(df)} rows; failures this run: {counts['failed']} -> {args.failures}")
-    if not args.no_sql:
+    if args.to_mysql:
         from python.database.db_connection import engine
         df.to_sql(name="pokemon_types", con=engine, if_exists="replace", index=False)
         print(f"MySQL pokemon_types replaced: {len(df)} rows")

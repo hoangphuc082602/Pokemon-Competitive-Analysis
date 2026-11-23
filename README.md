@@ -167,7 +167,7 @@ python -m python.crawl_data.data_pokemon
 # ... one script per entity in python/crawl_data/
 ```
 
-`data_pokemon` crawls the typing of every `/pokemon` entry, alternate forms included (PokéAPI ids ≥ 10001, e.g. `urshifu-rapid-strike` = 10191), into `data/raw/pokemon_type_raw.csv`. It is resumable (ids already in the CSV are skipped), rate-limited (`--delay`), writes failures to `data/raw/pokemon_type_failures.csv` and prints base / alternate form counts; `--ids 892 10191 --no-sql` crawls a small range without touching MySQL.
+`data_pokemon` crawls the typing of every `/pokemon` entry, alternate forms included (PokéAPI ids ≥ 10001, e.g. `urshifu-rapid-strike` = 10191), into `data/raw/pokemon_type_raw.csv`. It is resumable (ids already in the CSV are skipped), rate-limited (`--delay`), writes failures to `data/raw/pokemon_type_failures.csv` and prints base / alternate form counts; `--ids 892 10191` crawls a small range; `--to-mysql` rebuilds the MySQL table `pokemon_types` from the CSV (it then holds alternate forms too).
 
 ### 4. Run the app
 

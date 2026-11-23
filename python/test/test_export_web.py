@@ -210,6 +210,23 @@ def test_species_form_mapping_lists_each_exported_form_once_with_its_own_typing_
     assert (entry["rows"], entry["bytes"]) == (3, (out / entry["path"]).stat().st_size)
 
 
+def test_two_forms_of_one_species_get_two_rows_with_their_own_typing_and_stats(tmp_path):
+    ice = [("all", "Calyrex", 898, 10194, "calyrex-ice", "listed", 100, 60, 0)]
+    out = tmp_path / "web"
+    _, data = _forms(out, export(_write(tmp_path, extra_rows=ice), out, master=_write_master(tmp_path)))
+    calyrex = {r["form"]: (r["type_2"], r["atk"], r["spatk"], r["spe"]) for r in data if r["species"] == "Calyrex"}
+    assert calyrex == {"calyrex-shadow": ("ghost", 85, 165, 150), "calyrex-ice": ("ice", 165, 85, 50)}
+
+
+def test_a_stats_row_with_a_missing_value_makes_the_export_fail(tmp_path):
+    master = _write_master(tmp_path)
+    stats = pd.read_csv(master / "stats_raw.csv")
+    stats.loc[0, "spe"] = None
+    stats.to_csv(master / "stats_raw.csv", index=False)
+    with pytest.raises(ExportError, match="stats_raw.csv"):
+        export(_write(tmp_path), tmp_path / "web", master=master)
+
+
 def test_a_form_missing_from_the_type_master_gets_no_guessed_typing(tmp_path):
     """BR-05: nothing is borrowed from another form of the species; a monotype form has type_2 null."""
     types = [(10191, 2, 1), (892, 2, 1), (892, 17, 2), (10193, 14, 1)]   # Incineroar has no type row
