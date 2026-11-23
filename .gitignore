@@ -6,6 +6,3 @@ __pycache__/
 .DS_Store
 data/
 *.parquet
-.ai/
-docs/
-AGENTS.md
