@@ -54,4 +54,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .down { color: var(--down); }
 .tag { font-size: 0.75rem; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
 .note { color: var(--muted); font-size: 0.85rem; max-width: 75ch; }
+.note strong { color: var(--text); }
+h3 { font-size: 1.05rem; margin: 20px 0 8px; }
+td a { color: var(--accent); text-decoration: none; }
+td a:hover { text-decoration: underline; }
 footer { color: var(--muted); font-size: 0.85rem; padding: 24px 16px 40px; }

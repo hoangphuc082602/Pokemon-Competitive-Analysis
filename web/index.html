@@ -55,7 +55,69 @@
           (n counts only teams where that form was sent out; a separate row from teams that named it at team preview) or “never sent out” (form unknown, not guessed); forms
           missing from the master data (e.g. Arceus type forms) are tagged “species level”. “vs band” compares with the selected band's
           own baseline, not with 50%. Win rates describe teams that brought the form — correlation, not causation.
+          Click a Pokémon to see its partners and matchups.
         </p>
+      </section>
+
+      <section id="detail" aria-labelledby="detail-title">
+        <h2 id="detail-title">Partners and matchups</h2>
+        <form class="filters" onsubmit="return false">
+          <label>Species <select id="species"></select></label>
+        </form>
+        <p id="detail-context" class="context" aria-live="polite"></p>
+        <div id="detail-body" hidden>
+          <h3>Most frequent partners</h3>
+          <div class="table-scroll">
+            <table id="partners">
+              <thead>
+                <tr>
+                  <th scope="col">Partner</th>
+                  <th scope="col" class="num" title="Teams that brought both species">n teams</th>
+                  <th scope="col" class="num" title="Share of the selected species' teams that also brought this partner">Share</th>
+                  <th scope="col" class="num" title="Seen together this many times more often than if teams were picked at random (1 = chance)">Lift</th>
+                  <th scope="col" class="num">Win rate</th>
+                  <th scope="col" class="num" title="95% Wilson interval">95% CI</th>
+                  <th scope="col" class="num" title="Win rate of teams with both minus the band baseline, in percentage points">vs band</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="note">
+            <strong>Lift is co-occurrence, not synergy.</strong> Lift = P(both on a team) ÷ (P(A) × P(B)): above 1 means
+            players bring the two together more often than chance. It says nothing about whether the pair works well;
+            the win rate of teams with both is shown separately, against the band baseline.
+          </p>
+
+          <h3>Team-level matchups</h3>
+          <div class="table-scroll">
+            <table id="matchups">
+              <thead>
+                <tr>
+                  <th scope="col">Opposing team has</th>
+                  <th scope="col" class="num" title="Battles between a team with the selected species and a team with this one">n battles</th>
+                  <th scope="col" class="num">Win rate</th>
+                  <th scope="col" class="num" title="95% Wilson interval">95% CI</th>
+                  <th scope="col" class="num" title="log5 of the selected species' teams' win rate in this band and the opponent's teams' win rate over the whole regulation">Expected</th>
+                  <th scope="col" class="num" title="Win rate minus the log5 expectation, in percentage points">vs expected</th>
+                  <th scope="col" class="num" title="(win rate − expected) ÷ nominal standard error; |z| &lt; 4 is treated as noise">z</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="note">
+            <strong>Matchups are team-level, not on-field.</strong> A row compares teams that brought the selected species
+            with teams that brought the opponent; the other five Pokémon, leads and the choice of four are mixed in, so a
+            low win rate is not proof of a counter. <strong>Expected</strong> is the log5 estimate from both teams' overall
+            win rates (p<sub>A</sub>(1−p<sub>B</sub>) ÷ [p<sub>A</sub>(1−p<sub>B</sub>) + p<sub>B</sub>(1−p<sub>A</sub>)]),
+            (p<sub>A</sub>: the selected species' teams in this band; p<sub>B</sub>: the opponent's teams over the whole
+            regulation), so weak or strong opponents do not show up as matchups by themselves. Listed: the matchups
+            furthest below and above that expectation (by z), lowest first. <strong>z is nominal</strong>: games of a
+            best-of-three and one player's battles are not independent and many opponents are compared at once, so
+            |z| &lt; 4 is treated as noise and left uncoloured. In a rating band, the band is the selected species' player's.
+          </p>
+        </div>
       </section>
     </main>
 

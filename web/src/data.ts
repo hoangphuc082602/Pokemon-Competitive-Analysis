@@ -1,7 +1,7 @@
 // Typed loaders and selectors for the static data written by python/analytics/export_web.py.
 // The browser only displays already-correct rows: one regulation x one rating band at a time, never combined.
 
-export const SCHEMA_VERSION = 2;   // v2: one row per form (#24); v1 was species level
+export const SCHEMA_VERSION = 3;   // v3: partners + matchups (#13); v2: one row per form (#24); v1 was species level
 
 export interface FileEntry {
   regulation: string;
@@ -26,7 +26,55 @@ export interface Manifest {
   totals: { battles: number; player_battles: number };
   regulations: Regulation[];
   bands: string[];
-  datasets: { team_usage: FileEntry[]; species_forms: { path: string; rows: number; bytes: number } };
+  datasets: {
+    team_usage: FileEntry[];
+    species_forms: { path: string; rows: number; bytes: number };
+    partners: FileEntry[];
+    matchups: FileEntry[];
+  };
+}
+
+/** A species seen on the same team as the selected one (species level, all forms together). */
+export interface Partner {
+  species_id: number;
+  species: string;
+  n: number;              // teams with both
+  share: number;          // P(partner | selected species)
+  lift: number;           // co-occurrence vs chance, not synergy
+  win_rate: number;
+  win_ci_low: number;
+  win_ci_high: number;
+  win_rate_delta: number; // vs the band baseline
+}
+
+/** Teams with the selected species against teams with this one (team level, not on the field). */
+export interface Opponent {
+  species_id: number;
+  species: string;
+  n: number;              // battles
+  win_rate: number;
+  win_ci_low: number;
+  win_ci_high: number;
+  win_rate_delta: number; // vs the selected species' own win rate
+  expected_win_rate: number;     // log5 of both teams' overall win rates
+  win_rate_vs_expected: number;
+  z_vs_expected: number;
+}
+
+export interface SpeciesEntry {
+  species_id: number;
+  species: string;
+  partners?: Partner[];
+  opponents?: Opponent[];
+}
+
+export type PairDataset = "partners" | "matchups";
+
+export interface PairFile {
+  regulation: string;
+  rating_band: string;
+  min_n: number;
+  rows: SpeciesEntry[];
 }
 
 /** How the form of a row is known (pokemon_usage_stats.form_basis). */
@@ -80,7 +128,7 @@ export function parseManifest(json: unknown): Manifest {
   }
   const datasets = json.datasets;
   if (!Array.isArray(json.regulations) || !Array.isArray(json.bands) || !isObject(datasets)
-      || !Array.isArray(datasets.team_usage)) {
+      || !Array.isArray(datasets.team_usage) || !Array.isArray(datasets.partners) || !Array.isArray(datasets.matchups)) {
     throw new DataError("invalid", "manifest.json is missing regulations, bands or datasets");
   }
   return json as unknown as Manifest;
@@ -101,6 +149,23 @@ export async function loadTeamUsage(m: Manifest, regulation: string, band: strin
     throw new DataError("mismatch", `${entry.path} holds ${String(data.regulation)} / ${String(data.rating_band)}`);
   }
   return data as unknown as TeamUsage;
+}
+
+/** The partners or matchups file of exactly this regulation x band; never another band. */
+export async function loadPairFile(m: Manifest, dataset: PairDataset, regulation: string, band: string,
+                                   fetchJson: FetchJson, base: string): Promise<PairFile> {
+  const entry = m.datasets[dataset].find((f) => f.regulation === regulation && f.rating_band === band);
+  if (!entry) throw new DataError("not-found", `no ${dataset} for ${regulation} / ${band}`);
+  const data = await fetchJson(base + entry.path);
+  if (!isObject(data) || !Array.isArray(data.rows)) throw new DataError("invalid", `${entry.path} is not a ${dataset} file`);
+  if (data.regulation !== regulation || data.rating_band !== band) {
+    throw new DataError("mismatch", `${entry.path} holds ${String(data.regulation)} / ${String(data.rating_band)}`);
+  }
+  return data as unknown as PairFile;
+}
+
+export function speciesEntry(file: PairFile, speciesId: number): SpeciesEntry | undefined {
+  return file.rows.find((r) => r.species_id === speciesId);
 }
 
 export function filterRows(rows: UsageRow[], query: string): UsageRow[] {
@@ -124,6 +189,7 @@ export interface Filters {
   regulation: string;
   band: string;
   query: string;
+  species: number | null;   // species_id of the species detail view
 }
 
 /** Filters from a query string, falling back to the first regulation and its 'all' band (or first band). */
@@ -133,11 +199,14 @@ export function readFilters(search: string, m: Manifest): Filters {
   const bands = reg?.bands ?? [];
   const wanted = p.get("band") ?? "";
   const band = bands.includes(wanted) ? wanted : bands.includes("all") ? "all" : bands[0] ?? "";
-  return { regulation: reg?.id ?? "", band, query: p.get("q") ?? "" };
+  const sp = Number(p.get("sp"));
+  const species = p.get("sp") && Number.isInteger(sp) && sp > 0 ? sp : null;
+  return { regulation: reg?.id ?? "", band, query: p.get("q") ?? "", species };
 }
 
 export function writeFilters(f: Filters): string {
   const p = new URLSearchParams({ reg: f.regulation, band: f.band });
   if (f.query.trim()) p.set("q", f.query.trim());
+  if (f.species !== null) p.set("sp", String(f.species));
   return `?${p.toString()}`;
 }

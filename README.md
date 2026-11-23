@@ -265,7 +265,7 @@ Win rates this close to 50% are expected for a large ladder population; always r
 The browser UI (ADR-013) is a static Vite + TypeScript app in `web/`. It never queries MySQL: a Python export turns the aggregates into small JSON files, and the browser only displays them.
 
 ```bash
-python -m python.analytics.export_web --agg data/aggregates --out web/public/data   # needs pokemon_usage first
+python -m python.analytics.export_web --agg data/aggregates --out web/public/data   # needs pokemon_usage (and partner_stats / matchup_stats for the species view) first
 cd web
 npm ci
 npm test          # Vitest: loader and selectors
@@ -273,7 +273,7 @@ npm run dev       # local preview at http://localhost:5173
 npm run build     # typecheck + production build -> web/dist
 ```
 
-The export applies the metric rules so the browser cannot break them: rows are per form (forms of a species are never summed; forms hidden at team preview and never sent out, or missing from the master data, get their own labelled row, see [`METRICS.md`](METRICS.md)), forms with `n < 100` player-battles are dropped, win rates are given against the selected band's own baseline (`win_rate_delta`) with a 95% Wilson interval, each rating band (and `all`) is a separate file that is never summed, and only allow-listed columns are written. Usernames, replay / battle ids and player-level columns make the export fail. It also writes `species_forms.json` (species ↔ form mapping) and prints the regulations, bands, row counts per `form_basis` and file sizes (`manifest.json` records them too). Commit `web/public/data/` to publish a new snapshot: GitHub Actions runs the tests and the build on every pull request and deploys `web/` to GitHub Pages on `main` (repository setting: Pages → Source → GitHub Actions).
+The export applies the metric rules so the browser cannot break them: rows are per form (forms of a species are never summed; forms hidden at team preview and never sent out, or missing from the master data, get their own labelled row, see [`METRICS.md`](METRICS.md)), forms with `n < 100` player-battles are dropped, win rates are given against the selected band's own baseline (`win_rate_delta`) with a 95% Wilson interval, each rating band (and `all`) is a separate file that is never summed, and only allow-listed columns are written. Usernames, replay / battle ids and player-level columns make the export fail. For a selected species, `partners/` and `matchups/` files (one per regulation × band, species level) hold its most frequent team partners with co-occurrence lift (lift is co-occurrence, not synergy) and its team-level matchups furthest below / above the log5 expectation (`win_rate_vs_expected`; teams, not the Pokémon on the field); pairs with `n < 100` are dropped and the page links a species view as `?reg=&band=&sp=<species_id>`. It also writes `species_forms.json` (species ↔ form mapping) and prints the regulations, bands, row counts per `form_basis` and file sizes (`manifest.json` records them too). Commit `web/public/data/` to publish a new snapshot: GitHub Actions runs the tests and the build on every pull request and deploys `web/` to GitHub Pages on `main` (repository setting: Pages → Source → GitHub Actions).
 
 ## Testing
 

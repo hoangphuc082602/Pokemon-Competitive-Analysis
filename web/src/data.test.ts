@@ -4,8 +4,10 @@ import {
   SCHEMA_VERSION,
   filterRows,
   formNote,
+  loadPairFile,
   loadTeamUsage,
   parseManifest,
+  speciesEntry,
   readFilters,
   selectFile,
   writeFilters,
@@ -30,6 +32,11 @@ const manifest = (over: Record<string, unknown> = {}) => ({
       { regulation: "regA", rating_band: "1500_plus", path: "team_usage/regA__1500_plus.json", rows: 1, bytes: 10 },
       { regulation: "regB", rating_band: "all", path: "team_usage/regB__all.json", rows: 1, bytes: 10 },
     ],
+    partners: [
+      { regulation: "regA", rating_band: "all", path: "partners/regA__all.json", rows: 1, bytes: 10 },
+      { regulation: "regA", rating_band: "1500_plus", path: "partners/regA__1500_plus.json", rows: 1, bytes: 10 },
+    ],
+    matchups: [{ regulation: "regA", rating_band: "1500_plus", path: "matchups/regA__1500_plus.json", rows: 1, bytes: 10 }],
   },
   ...over,
 });
@@ -132,12 +139,49 @@ describe("URL filters", () => {
   const m = parseManifest(manifest()) as Manifest;
 
   it("round-trips regulation, band and search", () => {
-    const qs = writeFilters({ regulation: "regA", band: "1500_plus", query: "inc" });
-    expect(readFilters(qs, m)).toEqual({ regulation: "regA", band: "1500_plus", query: "inc" });
+    const qs = writeFilters({ regulation: "regA", band: "1500_plus", query: "inc", species: null });
+    expect(readFilters(qs, m)).toEqual({ regulation: "regA", band: "1500_plus", query: "inc", species: null });
+  });
+
+  it("round-trips the selected species so a species detail view is linkable", () => {
+    const qs = writeFilters({ regulation: "regA", band: "all", query: "", species: 727 });
+    expect(qs).toBe("?reg=regA&band=all&sp=727");
+    expect(readFilters(qs, m).species).toBe(727);
   });
 
   it("falls back to valid defaults for unknown values", () => {
-    expect(readFilters("?reg=nope&band=nope", m)).toEqual({ regulation: "regA", band: "all", query: "" });
-    expect(readFilters("?reg=regB&band=1500_plus", m)).toEqual({ regulation: "regB", band: "all", query: "" });
+    expect(readFilters("?reg=nope&band=nope&sp=x", m)).toEqual({ regulation: "regA", band: "all", query: "", species: null });
+    expect(readFilters("?reg=regB&band=1500_plus", m)).toEqual({ regulation: "regB", band: "all", query: "", species: null });
+  });
+});
+
+describe("partners and matchups", () => {
+  const m = parseManifest(manifest()) as Manifest;
+  const partner = (species_id: number, species: string, n: number) => ({
+    species_id, species, n, share: 0.5, lift: 1.8, win_rate: 0.6, win_ci_low: 0.5, win_ci_high: 0.7, win_rate_delta: 0.05 });
+  const file = { regulation: "regA", rating_band: "1500_plus", min_n: 100,
+                 rows: [{ species_id: 727, species: "Incineroar", partners: [partner(892, "Urshifu", 150)] }] };
+
+  it("requires the partners and matchups datasets of a v3 manifest", () => {
+    const { partners: _p, ...rest } = manifest().datasets;
+    expect(() => parseManifest(manifest({ datasets: rest }))).toThrow(expect.objectContaining({ code: "invalid" }));
+  });
+
+  it("loads exactly the selected regulation x band file", async () => {
+    const urls: string[] = [];
+    const data = await loadPairFile(m, "partners", "regA", "1500_plus", async (u) => { urls.push(u); return file; }, "d/");
+    expect(urls).toEqual(["d/partners/regA__1500_plus.json"]);
+    expect(speciesEntry(data, 727)?.partners?.map((p) => p.species)).toEqual(["Urshifu"]);
+    expect(speciesEntry(data, 1)).toBeUndefined();
+  });
+
+  it("never substitutes another band when the selected band has no file", async () => {
+    await expect(loadPairFile(m, "matchups", "regA", "all", async () => file, "")).rejects
+      .toThrow(expect.objectContaining({ code: "not-found" }));
+  });
+
+  it("rejects a file of another band", async () => {
+    await expect(loadPairFile(m, "partners", "regA", "all", async () => file, "")).rejects
+      .toThrow(expect.objectContaining({ code: "mismatch" }));
   });
 });
