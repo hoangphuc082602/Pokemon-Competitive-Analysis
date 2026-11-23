@@ -87,8 +87,8 @@ Dashed boxes are planned, not built yet. Game mechanics (PokéAPI, deterministic
 | Streamlit app | Prototype | Team Builder, Damage Calculator, Team Analysis |
 | Unit tests | Passing in CI | No database needed |
 | Matchup aggregate | Done | `matchup_stats`: team level, log5 expectation |
-| EDA report | Done | `eda_report` generates `docs/EDA_FINDINGS.md` and charts |
-| Power BI dashboard | Designed | [`docs/POWERBI_PLAN.md`](docs/POWERBI_PLAN.md): data model, pages, measures |
+| EDA report | Done | `eda_report` generates `documents/EDA_FINDINGS.md` and charts |
+| Power BI dashboard | Designed | [`documents/POWERBI_PLAN.md`](documents/POWERBI_PLAN.md): data model, pages, measures |
 | Recommendation | Prototype | Word2Vec teammate similarity, not evaluated |
 
 ## Tech stack
@@ -113,7 +113,7 @@ Python · pandas · NumPy · PyArrow / Parquet · SQLAlchemy + PyMySQL · MySQL 
 │   └── test/              # pytest suite
 ├── parser/                # battle-log state machine and the batch runner
 ├── migrations/            # SQL run by hand: species / username columns, VGC scope table, optional raw-table indexes
-├── docs/                  # Power BI plan
+├── documents/                  # Power BI plan
 ├── src/                   # Word2Vec prototype (team generator, training, similarity query)
 ├── streamlit_app/         # app.py and pages/
 ├── models/                # trained Word2Vec model
@@ -232,7 +232,7 @@ python -m python.analytics.tera_stats --output-dir data/output                  
 python -m python.analytics.partner_stats --output-dir data/output --partners Incineroar      # teammate co-occurrence and lift
 python -m python.analytics.usage_trend --output-dir data/output --species Incineroar         # monthly usage per regulation
 python -m python.analytics.matchup_stats --output-dir data/output --species Incineroar       # team-level matchups (A's team vs B's team)
-python -m python.analytics.eda_report --agg data/aggregates --out docs                      # EDA findings and charts -> docs/EDA_FINDINGS.md
+python -m python.analytics.eda_report --agg data/aggregates --out documents                      # EDA findings and charts -> documents/EDA_FINDINGS.md
 python -m python.analytics.dim_tables --output-dir data/output                               # regulation / rating band / month / species dimensions
 ```
 
@@ -291,8 +291,8 @@ These are tracked openly rather than hidden:
 
 ## Roadmap
 
-1. Publish the EDA findings (`docs/EDA_FINDINGS.md`).
-2. The Power BI dashboard on the aggregates (model and pages are designed in [`docs/POWERBI_PLAN.md`](docs/POWERBI_PLAN.md)).
+1. Publish the EDA findings (`documents/EDA_FINDINGS.md`).
+2. The Power BI dashboard on the aggregates (model and pages are designed in [`documents/POWERBI_PLAN.md`](documents/POWERBI_PLAN.md)).
 3. Damage-calculator mechanics and a service layer between Streamlit and the calculation engine.
 4. Hybrid recommendation: rule-based gaps (role, coverage, speed) + meta statistics + embeddings, evaluated on hold-out battles.
 5. Longer term: FastAPI service, speed calculator, EV / IV optimiser, Smogon data.

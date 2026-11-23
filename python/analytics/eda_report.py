@@ -1,8 +1,8 @@
 """EDA on the aggregate tables: findings with their numbers, charts, and a generated report.
 
-    python -m python.analytics.eda_report --agg data/aggregates --out docs
+    python -m python.analytics.eda_report --agg data/aggregates --out documents
 
-Reads the Parquet / CSV files written by the aggregate modules and writes docs/EDA_FINDINGS.md and docs/img/*.png.
+Reads the Parquet / CSV files written by the aggregate modules and writes documents/EDA_FINDINGS.md and documents/img/*.png.
 Every statement in the report is generated from a table, so numbers and text cannot drift apart. Definitions and
 caveats: METRICS.md. All figures are descriptive; none of them is a causal claim.
 """
