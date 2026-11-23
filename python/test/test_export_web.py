@@ -9,23 +9,27 @@ from python.analytics.export_web import ExportError, export
 REG = "gen9vgc2024regg"
 
 
-def _write(tmp_path, extra_cols=None):
+def _write(tmp_path, extra_cols=None, extra_rows=()):
     """Synthetic aggregates as written by pokemon_usage (form grain, 'all' band rows included).
     The export reads aggregates, not event tables, so this mirrors test_pokemon_usage._write at the next layer:
     counts chosen so that 'all' differs from the sum of bands and n crosses the threshold."""
     agg = tmp_path / "agg"
     agg.mkdir()
-    rows = [  # band, species, species_id, poke_id, form_basis, appearances, wins, leads
-        ("all", "Urshifu", 892, 10191, "observed", 150, 90, 60),
-        ("all", "Urshifu", 892, None, "unobserved", 50, 20, 0),   # same species: 200 together
-        ("all", "Incineroar", 727, 727, "listed", 300, 150, 150),
-        ("all", "Rare", 1, 1, "listed", 99, 99, 0),               # n < 100: hidden, but still in the baseline
-        ("1500_plus", "Incineroar", 727, 727, "listed", 120, 72, 60),
-        ("1500_plus", "Urshifu", 892, 10191, "observed", 100, 40, 10),
-        ("1500_plus", "Rare", 1, 1, "listed", 20, 0, 0),
+    rows = [  # band, species, species_id, poke_id, form, form_basis, appearances, wins, leads
+        ("all", "Urshifu", 892, 10191, "urshifu-rapid-strike", "observed", 150, 90, 60),
+        ("all", "Urshifu", 892, None, None, "unobserved", 120, 50, 0),     # masked, never sent out: own row
+        ("all", "Incineroar", 727, 727, "incineroar", "listed", 300, 150, 150),
+        ("all", "Calyrex", 898, 10193, "calyrex-shadow", "listed", 200, 120, 50),
+        ("all", "Calyrex", 898, 10194, "calyrex-ice", "listed", 99, 60, 0),  # species 299, this form < 100
+        ("all", "Arceus", 493, None, None, "species_only", 100, 50, 0),     # e.g. Arceus-Fire: not in master data
+        ("all", "Rare", 1, 1, "rare", "listed", 99, 99, 0),                 # n < 100: hidden, but in the baseline
+        ("1500_plus", "Incineroar", 727, 727, "incineroar", "listed", 120, 72, 60),
+        ("1500_plus", "Urshifu", 892, 10191, "urshifu-rapid-strike", "observed", 100, 40, 10),
+        ("1500_plus", "Rare", 1, 1, "rare", "listed", 20, 0, 0),
         # 'all' deliberately differs from the sum of bands: the export must take 'all' rows as given
+        *extra_rows,
     ]
-    df = pd.DataFrame(rows, columns=["rating_band", "species", "species_id", "poke_id", "form_basis",
+    df = pd.DataFrame(rows, columns=["rating_band", "species", "species_id", "poke_id", "form", "form_basis",
                                      "appearances", "wins", "leads"])
     df["regulation"] = REG
     df["sent_out"] = df["appearances"]
@@ -51,18 +55,36 @@ def _file(out, manifest, band):
 
 
 def _rows(out, manifest, band):
-    return {r["species"]: r for r in _file(out, manifest, band)[1]["rows"]}
+    return {r["label"]: r for r in _file(out, manifest, band)[1]["rows"]}
 
 
-def test_species_below_100_player_battles_are_not_exported(exported):
+def test_forms_below_100_player_battles_are_not_exported(exported):
     rows = _rows(*exported, "all")
-    assert set(rows) == {"Urshifu", "Incineroar"}
+    assert set(rows) == {"Urshifu-Rapid-Strike (seen in battle)", "Urshifu (form unknown)", "Incineroar", "Calyrex-Shadow",
+                         "Arceus (form not in master data)"}                  # Calyrex-Ice 99 < 100 though species 299
     assert all(r["n"] >= 100 for r in rows.values())
 
 
-def test_forms_are_summed_to_the_species_total(exported):
-    urshifu = _rows(*exported, "all")["Urshifu"]
-    assert (urshifu["n"], urshifu["win_rate"]) == (200, 0.55)              # 150 observed + 50 unobserved
+def test_a_masked_family_never_sent_out_is_its_own_row_and_never_guessed(exported):
+    rows = _rows(*exported, "all")
+    unknown = rows["Urshifu (form unknown)"]
+    assert (unknown["species"], unknown["poke_id"], unknown["form"], unknown["form_basis"]) == \
+           ("Urshifu", None, None, "unobserved")
+    assert (unknown["n"], rows["Urshifu-Rapid-Strike (seen in battle)"]["n"]) == (120, 150)   # unobserved share 120 / 270
+    assert rows["Urshifu-Rapid-Strike (seen in battle)"]["form_basis"] == "observed"
+
+
+def test_a_form_missing_from_the_master_data_stays_at_species_level(exported):
+    arceus = _rows(*exported, "all")["Arceus (form not in master data)"]
+    assert (arceus["species_id"], arceus["poke_id"], arceus["form"], arceus["form_basis"], arceus["n"]) == \
+           (493, None, None, "species_only", 100)
+
+
+def test_listed_forms_of_one_species_are_separate_rows(exported):
+    shadow = _rows(*exported, "all")["Calyrex-Shadow"]
+    assert (shadow["species"], shadow["form"], shadow["poke_id"], shadow["form_basis"]) == \
+           ("Calyrex", "calyrex-shadow", 10193, "listed")
+    assert (shadow["n"], shadow["win_rate"], shadow["lead_rate"]) == (200, 0.6, 0.25)   # not the species total 299
 
 
 def test_win_rate_delta_is_against_the_bands_own_baseline(exported):
@@ -71,7 +93,9 @@ def test_win_rate_delta_is_against_the_bands_own_baseline(exported):
     assert top["baseline_win_rate"] == pytest.approx(112 / 240, abs=1e-5)  # all species of the band, Rare included
     inc = _rows(out, manifest, "1500_plus")["Incineroar"]
     assert inc["win_rate_delta"] == pytest.approx(0.6 - 112 / 240, abs=1e-5)
-    assert _rows(out, manifest, "all")["Incineroar"]["win_rate_delta"] == pytest.approx(0.5 - 359 / 599, abs=1e-5)
+    _, all_ = _file(out, manifest, "all")
+    assert all_["baseline_win_rate"] == pytest.approx(619 / 1068, abs=1e-5)  # every form row, hidden ones included
+    assert _rows(out, manifest, "all")["Incineroar"]["win_rate_delta"] == pytest.approx(0.5 - 619 / 1068, abs=1e-5)
 
 
 def test_rows_carry_n_and_a_wilson_interval(exported):
@@ -102,13 +126,13 @@ def test_exported_files_hold_only_allow_listed_keys(exported):
         data = json.loads((out / f["path"]).read_text(encoding="utf-8"))
         assert list(data) == ["regulation", "rating_band", "player_battles", "baseline_win_rate", "min_n", "rows"]
         for r in data["rows"]:
-            assert list(r) == ["species_id", "species", "n", "usage_share", "win_rate", "win_ci_low", "win_ci_high",
+            assert list(r) == ["species_id", "species", "poke_id", "form", "form_basis", "label", "n", "usage_share", "win_rate", "win_ci_low", "win_ci_high",
                                "win_rate_delta", "lead_rate"]
 
 
 def test_manifest_counts_and_sizes_match_the_files(exported):
     out, manifest = exported
-    assert manifest["schema_version"] == 1 and manifest["min_n"] == 100
+    assert manifest["schema_version"] == 2 and manifest["min_n"] == 100
     on_disk = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     assert on_disk == manifest
     for f in manifest["datasets"]["team_usage"]:
@@ -139,3 +163,25 @@ def test_files_of_an_earlier_export_are_removed(tmp_path):
     assert not stale.exists()
     assert sorted(p.name for p in (out / "team_usage").iterdir()) == \
            sorted(f["path"].split("/")[1] for f in manifest["datasets"]["team_usage"])
+
+
+def test_species_form_mapping_lists_each_exported_form_once(exported):
+    out, manifest = exported
+    entry = manifest["datasets"]["species_forms"]
+    data = json.loads((out / entry["path"]).read_text(encoding="utf-8"))
+    assert data == [{"species": "Calyrex", "form": "calyrex-shadow"},          # Calyrex-Ice is in no exported file
+                    {"species": "Incineroar", "form": "incineroar"},
+                    {"species": "Urshifu", "form": "urshifu-rapid-strike"}]   # in two bands, listed once
+    assert (entry["rows"], entry["bytes"]) == (3, (out / entry["path"]).stat().st_size)
+
+
+def test_a_form_both_listed_and_revealed_in_battle_keeps_two_distinguishable_rows(tmp_path):
+    """Zacian-Crowned is named at team preview by some teams and masked ('Zacian-*') then revealed for others:
+    two populations (BR-06), never summed, and the two rows must not share a label."""
+    zacian = [("all", "Zacian", 888, 10188, "zacian-crowned", "listed", 100, 50, 0),
+              ("all", "Zacian", 888, 10188, "zacian-crowned", "observed", 150, 90, 0)]
+    out = tmp_path / "web"
+    manifest = export(_write(tmp_path, extra_rows=zacian), out)
+    rows = _file(out, manifest, "all")[1]["rows"]
+    zac = {r["label"]: (r["form_basis"], r["n"]) for r in rows if r["species"] == "Zacian"}
+    assert zac == {"Zacian-Crowned": ("listed", 100), "Zacian-Crowned (seen in battle)": ("observed", 150)}
