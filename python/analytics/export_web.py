@@ -429,7 +429,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--agg", type=Path, default=Path("data/aggregates"))
     ap.add_argument("--out", type=Path, default=Path("web/public/data"))
-    ap.add_argument("--snapshot-date", default=None, help="ISO date of the data snapshot (default: aggregate file date)")
+    ap.add_argument("--snapshot-date", default=None, type=lambda v: dt.date.fromisoformat(v).isoformat(),
+                    help="ISO date (YYYY-MM-DD) of the data snapshot (default: aggregate file date)")
     args = ap.parse_args(argv)
 
     m = export(args.agg, args.out, snapshot_date=args.snapshot_date)

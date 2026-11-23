@@ -548,3 +548,10 @@ def test_an_empty_tera_types_table_gives_species_without_a_type_split(tmp_path):
     pd.read_parquet(agg / "pokemon_tera_types.parquet").iloc[:0].to_parquet(agg / "pokemon_tera_types.parquet", index=False)
     out = tmp_path / "web"
     assert _tera(out, export(agg, out), "all")["Incineroar"]["types"] == []
+
+
+def test_a_snapshot_date_that_is_not_iso_is_refused(tmp_path):
+    from python.analytics.export_web import main
+    with pytest.raises(SystemExit):
+        main(["--agg", str(_write(tmp_path)), "--out", str(tmp_path / "web"), "--snapshot-date", "11/23/2026"])
+    assert not (tmp_path / "web").exists()
