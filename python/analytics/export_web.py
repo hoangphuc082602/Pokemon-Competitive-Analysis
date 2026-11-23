@@ -1,0 +1,184 @@
+"""Export pre-computed aggregates as static JSON for the web app (ADR-013).
+
+    python -m python.analytics.export_web --agg data/aggregates --out web/public/data
+
+Reads pokemon_usage_stats (Parquet, in batches; CSV fallback in chunks) and regulation_totals, writes
+    manifest.json                          schema version, snapshot date, regulations, bands, row counts, file sizes
+    team_usage/<regulation>__<band>.json   species-level team usage of one regulation x rating band
+Business rules are applied here so the browser only displays (docs/ai-onboarding/03-BUSINESS-RULES):
+    population  completed VGC battles, unit = player-battle (inherited from pokemon_usage)
+    BR-05       rows are species level (all forms summed, the documented species total of pokemon_usage)
+    BR-08       every band is its own file; 'all' comes from the 'all' rows of the input, never from a sum of bands
+    BR-09       win_rate_delta = win rate - the band's own baseline (all species of that regulation x band, before the n filter)
+    BR-10       species with n < 100 player-battles are dropped
+Output columns are an allow-list; usernames, replay / battle ids and player-level columns are refused (ExportError).
+"""
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import re
+from pathlib import Path
+
+import pandas as pd
+import pyarrow.parquet as pq
+
+from python.analytics.pokemon_usage import wilson
+
+SCHEMA_VERSION = 1
+MIN_N = 100
+KEYS = ["regulation", "rating_band", "species_id", "species"]
+COUNTS = ["appearances", "wins", "leads"]
+ROW_COLUMNS = ["species_id", "species", "n", "usage_share", "win_rate", "win_ci_low", "win_ci_high",
+               "win_rate_delta", "lead_rate"]
+FILE_COLUMNS = ["regulation", "rating_band", "player_battles", "baseline_win_rate", "min_n", "rows"]
+FORBIDDEN = re.compile(r"user|replay|battle_id|player_side|^side$|^p[12]_|rating_before|nickname|pokemon_name", re.I)
+BAND_ORDER = ["all", "below_1200", "1200_1399", "1400_1499", "1500_plus", "unknown"]
+
+
+class ExportError(RuntimeError):
+    """The export refused to write (forbidden column, missing input)."""
+
+
+def check_columns(columns, where: str) -> None:
+    bad = [c for c in columns if FORBIDDEN.search(str(c))]
+    if bad:
+        raise ExportError(f"forbidden column(s) {bad} in {where}: personal / battle-level data is never exported")
+
+
+def _usage_batches(agg: Path, batch_size: int):
+    """Species-level partial sums of pokemon_usage_stats, one DataFrame per batch."""
+    pq_path, csv_path = agg / "pokemon_usage_stats.parquet", agg / "pokemon_usage_stats.csv"
+    if pq_path.exists():
+        pf = pq.ParquetFile(pq_path)
+        check_columns(pf.schema_arrow.names, pq_path.name)
+        batches = (b.to_pandas() for b in pf.iter_batches(columns=KEYS + COUNTS, batch_size=batch_size))
+    elif csv_path.exists():
+        check_columns(pd.read_csv(csv_path, nrows=0).columns, csv_path.name)
+        batches = pd.read_csv(csv_path, usecols=KEYS + COUNTS, chunksize=batch_size)
+    else:
+        raise ExportError(f"pokemon_usage_stats.parquet/.csv not found in {agg}")
+    for df in batches:
+        df = df.assign(regulation=df["regulation"].astype(str), rating_band=df["rating_band"].astype(str),
+                       species=df["species"].astype(str), species_id=df["species_id"].astype("int64"))
+        yield df.groupby(KEYS, as_index=False)[COUNTS].sum()
+
+
+def _totals(agg: Path) -> pd.DataFrame:
+    totals = pd.read_csv(agg / "regulation_totals.csv")
+    check_columns(totals.columns, "regulation_totals.csv")
+    return totals.assign(regulation=totals["regulation"].astype(str), rating_band=totals["rating_band"].astype(str))
+
+
+def team_usage(agg: Path, batch_size: int = 500_000) -> pd.DataFrame:
+    """Species-level team usage per regulation x band with band baseline, delta and Wilson interval (n < 100 dropped)."""
+    totals = _totals(agg)
+    parts = list(_usage_batches(agg, batch_size))
+    if not parts:
+        raise ExportError("pokemon_usage_stats is empty")
+    g = pd.concat(parts, ignore_index=True).groupby(KEYS, as_index=False)[COUNTS].sum()
+    base = g.groupby(["regulation", "rating_band"])[["wins", "appearances"]].transform("sum")
+    g["baseline_win_rate"] = base["wins"] / base["appearances"]          # BR-09: before the n filter
+    g = g.merge(totals[["regulation", "rating_band", "player_battles"]], on=["regulation", "rating_band"], how="left")
+    if g["player_battles"].isna().any():
+        missing = g.loc[g["player_battles"].isna(), ["regulation", "rating_band"]].drop_duplicates().values.tolist()
+        raise ExportError(f"regulation_totals has no row for {missing}")
+    g = g[g["appearances"] >= MIN_N].copy()                               # BR-10
+    g["n"] = g["appearances"].astype("int64")
+    g["usage_share"] = g["appearances"] / g["player_battles"]
+    g["win_rate"] = g["wins"] / g["appearances"]
+    g["win_rate_delta"] = g["win_rate"] - g["baseline_win_rate"]
+    g["win_ci_low"], g["win_ci_high"] = wilson(g["wins"], g["appearances"])
+    g["lead_rate"] = g["leads"] / g["appearances"]
+    return g.sort_values(["regulation", "rating_band", "n", "species"], ascending=[True, True, False, True]).reset_index(drop=True)
+
+
+def _records(df: pd.DataFrame) -> list[dict]:
+    check_columns(df.columns, "team_usage rows")
+    out = df[ROW_COLUMNS].copy()
+    floats = [c for c in ROW_COLUMNS if c not in ("species_id", "species", "n")]
+    out[floats] = out[floats].astype(float).round(5)
+    return [{"species_id": int(r.species_id), "species": str(r.species), "n": int(r.n),
+             **{c: float(getattr(r, c)) for c in floats}} for r in out.itertuples(index=False)]
+
+
+def _write_json(path: Path, obj) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(obj, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    path.write_text(text, encoding="utf-8")
+    return len(text.encode("utf-8"))
+
+
+def _band_key(band: str) -> int:
+    return BAND_ORDER.index(band) if band in BAND_ORDER else len(BAND_ORDER)
+
+
+def export(agg: Path, out: Path, batch_size: int = 500_000, snapshot_date: str | None = None) -> dict:
+    """Write the web data files and manifest.json under `out`; returns the manifest."""
+    agg, out = Path(agg), Path(out)
+    usage = team_usage(agg, batch_size)          # validates the inputs before anything is written or removed
+    totals = _totals(agg)
+    for old in (out / "team_usage").glob("*.json"):   # files of an earlier export would be deployed but unlisted
+        old.unlink()
+    files = []
+    for (reg, band), g in usage.groupby(["regulation", "rating_band"], sort=False):
+        payload = {"regulation": reg, "rating_band": band, "player_battles": int(g["player_battles"].iloc[0]),
+                   "baseline_win_rate": round(float(g["baseline_win_rate"].iloc[0]), 5), "min_n": MIN_N,
+                   "rows": _records(g)}
+        if list(payload) != FILE_COLUMNS:
+            raise ExportError(f"team_usage file keys {list(payload)} are not the allow-list {FILE_COLUMNS}")
+        rel = f"team_usage/{reg}__{band}.json"
+        size = _write_json(out / rel, payload)
+        files.append({"regulation": reg, "rating_band": band, "path": rel, "rows": len(payload["rows"]), "bytes": size})
+    files.sort(key=lambda f: (f["regulation"], _band_key(f["rating_band"])))
+    regs = []
+    for reg in sorted(usage["regulation"].unique()):
+        t = totals[(totals["regulation"] == reg) & (totals["rating_band"] == "all")]
+        regs.append({"id": reg,
+                     "battles": int(t["battles"].iloc[0]) if len(t) and pd.notna(t["battles"].iloc[0]) else None,
+                     "player_battles": int(t["player_battles"].iloc[0]) if len(t) else None,
+                     "bands": [f["rating_band"] for f in files if f["regulation"] == reg]})
+    if snapshot_date is None:
+        src = max((p.stat().st_mtime for p in agg.glob("pokemon_usage_stats.*")), default=None)
+        snapshot_date = dt.date.fromtimestamp(src).isoformat() if src else dt.date.today().isoformat()
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "snapshot_date": snapshot_date,
+        "min_n": MIN_N,
+        "population": "completed VGC battles; unit = player-battle; species level (forms summed)",
+        "totals": {"battles": sum(r["battles"] or 0 for r in regs),
+                   "player_battles": sum(r["player_battles"] or 0 for r in regs)},
+        "regulations": regs,
+        "bands": sorted({f["rating_band"] for f in files}, key=_band_key),
+        "datasets": {"team_usage": files},
+    }
+    _write_json(out / "manifest.json", manifest)
+    return manifest
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--agg", type=Path, default=Path("data/aggregates"))
+    ap.add_argument("--out", type=Path, default=Path("web/public/data"))
+    ap.add_argument("--snapshot-date", default=None, help="ISO date of the data snapshot (default: aggregate file date)")
+    args = ap.parse_args(argv)
+
+    m = export(args.agg, args.out, snapshot_date=args.snapshot_date)
+    files = m["datasets"]["team_usage"]
+    on_disk = {f["path"]: (args.out / f["path"]).stat().st_size for f in files}
+    print(f"schema v{m['schema_version']}, snapshot {m['snapshot_date']}, n >= {m['min_n']}")
+    print(f"regulations ({len(m['regulations'])}): " + ", ".join(r["id"] for r in m["regulations"]))
+    print(f"bands ({len(m['bands'])}): " + ", ".join(m["bands"]))
+    print(f"totals: {m['totals']['battles']:,} battles, {m['totals']['player_battles']:,} player-battles")
+    print(f"team_usage: {len(files)} files, {sum(f['rows'] for f in files):,} rows, "
+          f"{sum(on_disk.values()) / 1024:,.1f} KiB, largest {max(on_disk.values(), default=0) / 1024:,.1f} KiB")
+    for f in files:
+        print(f"  {f['path']}: {f['rows']} rows, {f['bytes']:,} B")
+    print(f"checks: manifest sizes match files: {all(on_disk[f['path']] == f['bytes'] for f in files)}; "
+          f"every file < 100 MB: {all(v < 100 * 2**20 for v in on_disk.values())}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -260,6 +260,21 @@ Example (author's data, Regulation I 2025, 991,234 player-battles; usage = share
 
 Win rates this close to 50% are expected for a large ladder population; always read them with the sample size and interval stored in the table, and within a rating band compare with the band's own baseline (`win_rate_delta`), because the opponents of a high-rated player are on average lower rated.
 
+### 9. Web app (static site on GitHub Pages)
+
+The browser UI (ADR-013) is a static Vite + TypeScript app in `web/`. It never queries MySQL: a Python export turns the aggregates into small JSON files, and the browser only displays them.
+
+```bash
+python -m python.analytics.export_web --agg data/aggregates --out web/public/data   # needs pokemon_usage first
+cd web
+npm ci
+npm test          # Vitest: loader and selectors
+npm run dev       # local preview at http://localhost:5173
+npm run build     # typecheck + production build -> web/dist
+```
+
+The export applies the metric rules so the browser cannot break them: species with `n < 100` player-battles are dropped, win rates are given against the selected band's own baseline (`win_rate_delta`) with a 95% Wilson interval, each rating band (and `all`) is a separate file that is never summed, and only allow-listed columns are written. Usernames, replay / battle ids and player-level columns make the export fail. It prints the regulations, bands, row counts and file sizes (`manifest.json` records them too). Commit `web/public/data/` to publish a new snapshot: GitHub Actions runs the tests and the build on every pull request and deploys `web/` to GitHub Pages on `main` (repository setting: Pages → Source → GitHub Actions).
+
 ## Testing
 
 ```bash
