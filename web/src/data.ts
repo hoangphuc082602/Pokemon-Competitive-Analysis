@@ -1,7 +1,7 @@
 // Typed loaders and selectors for the static data written by python/analytics/export_web.py.
 // The browser only displays already-correct rows: one regulation x one rating band at a time, never combined.
 
-export const SCHEMA_VERSION = 4;   // v4: trend + tera (#14); v3: partners + matchups (#13); v2: one row per form (#24); v1 was species level
+export const SCHEMA_VERSION = 5;   // v5: band baselines for trend + tera, unrated share; v4: trend + tera (#14); v3: partners + matchups (#13); v2: one row per form (#24); v1 was species level
 
 export interface FileEntry {
   regulation: string;
@@ -15,6 +15,7 @@ export interface Regulation {
   id: string;
   battles: number | null;
   player_battles: number | null;
+  unrated_share: number | null;   // BR-11: player-battles without a rating (in 'all', in no rating band)
   bands: string[];
 }
 
@@ -77,6 +78,7 @@ export interface TrendMonth {
   month: string;          // YYYY-MM, UTC month of the replay upload
   player_battles: number;
   tail: boolean;
+  baseline_win_rate: number;   // win rate of all teams of this band that month (BR-09)
 }
 
 export interface TrendPoint {
@@ -86,6 +88,7 @@ export interface TrendPoint {
   win_rate: number;
   win_ci_low: number;
   win_ci_high: number;
+  win_rate_delta: number; // vs the band baseline of that month
 }
 
 export interface TrendFile {
@@ -113,6 +116,8 @@ export interface TeraRow {
   tera_rate_ci_high: number;
   win_rate_tera: number | null;
   win_rate_no_tera: number | null;
+  win_rate_tera_delta: number | null;     // vs the band baseline; null when the win rate is hidden
+  win_rate_no_tera_delta: number | null;
   types: TeraType[];      // empty when tera_events < min_n
 }
 
@@ -120,6 +125,7 @@ export interface TeraFile {
   regulation: string;
   rating_band: string;
   min_n: number;
+  baseline_win_rate: number | null;   // team usage baseline of the band
   rows: TeraRow[];
 }
 
@@ -252,6 +258,7 @@ export interface ChartSeries {
   tailMonths: string[];       // months left out of the chart, disclosed under it
   hiddenTailPoints: number;   // points of the species in tail months (exported, not charted)
   monthBattles: Record<string, number>;   // player-battles of this band in each charted month (the usage denominator)
+  monthBaseline: Record<string, number>;  // win rate of all teams of this band in each charted month
   thinMonths: string[];       // charted months with < 5% of this band's busiest month (tail is per regulation, not per band)
 }
 
@@ -266,6 +273,7 @@ export function chartPoints(file: TrendFile, speciesId: number): ChartSeries {
   const peak = Math.max(0, ...months.map((x) => x.player_battles));
   return {
     monthBattles: Object.fromEntries(charted.map((x) => [x.month, x.player_battles])),
+    monthBaseline: Object.fromEntries(charted.map((x) => [x.month, x.baseline_win_rate])),
     thinMonths: charted.filter((x) => x.player_battles < THIN_SHARE * peak).map((x) => x.month),
     months: charted.map((x) => x.month),
     points: all.filter((p) => !tail.has(p.month)).sort((a, b) => a.month.localeCompare(b.month)),
@@ -326,6 +334,17 @@ export interface Filters {
   band: string;
   query: string;
   species: number | null;   // species_id of the species detail view
+  page: number;             // team usage page (1-based)
+}
+
+const NOT_RATING_BANDS = new Set(["all", "unknown"]);
+
+/** BR-11 notice for a rating band: the share of player-battles without a rating, left out of every rating band. */
+export function unratedNote(m: Manifest, regulation: string, band: string): string {
+  const share = m.regulations.find((r) => r.id === regulation)?.unrated_share;
+  if (NOT_RATING_BANDS.has(band) || share === null || share === undefined) return "";
+  return `${(100 * share).toFixed(1)}% of ${regulation} player-battles have no rating and are not in any rating band ` +
+    `(they are counted in “All players”).`;
 }
 
 /** Filters from a query string, falling back to the first regulation and its 'all' band (or first band). */
@@ -337,12 +356,15 @@ export function readFilters(search: string, m: Manifest): Filters {
   const band = bands.includes(wanted) ? wanted : bands.includes("all") ? "all" : bands[0] ?? "";
   const sp = Number(p.get("sp"));
   const species = p.get("sp") && Number.isInteger(sp) && sp > 0 ? sp : null;
-  return { regulation: reg?.id ?? "", band, query: p.get("q") ?? "", species };
+  const pg = Number(p.get("p"));
+  const page = Number.isInteger(pg) && pg >= 1 ? pg : 1;   // too-large pages are clamped by paginate
+  return { regulation: reg?.id ?? "", band, query: p.get("q") ?? "", species, page };
 }
 
 export function writeFilters(f: Filters): string {
   const p = new URLSearchParams({ reg: f.regulation, band: f.band });
   if (f.query.trim()) p.set("q", f.query.trim());
+  if (f.page > 1) p.set("p", String(f.page));
   if (f.species !== null) p.set("sp", String(f.species));
   return `?${p.toString()}`;
 }

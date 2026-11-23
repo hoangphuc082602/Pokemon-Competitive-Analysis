@@ -132,14 +132,15 @@ def test_exported_files_hold_only_allow_listed_keys(exported):
 
 def test_manifest_counts_and_sizes_match_the_files(exported):
     out, manifest = exported
-    assert manifest["schema_version"] == 4 and manifest["min_n"] == 100
+    assert manifest["schema_version"] == 5 and manifest["min_n"] == 100
     on_disk = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     assert on_disk == manifest
     for f in manifest["datasets"]["team_usage"]:
         path = out / f["path"]
         assert f["bytes"] == path.stat().st_size
         assert f["rows"] == len(json.loads(path.read_text(encoding="utf-8"))["rows"])
-    assert manifest["regulations"] == [{"id": REG, "battles": 500, "player_battles": 1000, "bands": ["all", "1500_plus"]}]
+    assert manifest["regulations"] == [{"id": REG, "battles": 500, "player_battles": 1000, "unrated_share": None,
+                                       "bands": ["all", "1500_plus"]}]
     assert manifest["bands"] == ["all", "1500_plus"] and manifest["totals"] == {"battles": 500, "player_battles": 1000}
 
 
@@ -341,7 +342,10 @@ def test_csv_pair_tables_give_the_same_export(tmp_path):
 
 
 MONTHLY_COLS = ["regulation", "month", "rating_band", "species", "species_id", "appearances", "wins", "sent_out",
-                "player_battles", "tail", "usage_share", "win_rate", "win_ci_low", "win_ci_high", "sent_out_rate"]
+                "player_battles", "tail", "usage_share", "win_rate", "win_ci_low", "win_ci_high", "baseline_win_rate",
+                "win_rate_delta", "sent_out_rate"]
+MONTH_BASELINE = {("2024-01", "all"): 0.5, ("2024-02", "all"): 0.52, ("2024-03", "all"): 0.5, ("unknown", "all"): 0.5,
+                  ("2024-01", "1500_plus"): 0.55}
 
 
 def _write_monthly(agg, rows=None):
@@ -362,6 +366,8 @@ def _write_monthly(agg, rows=None):
     df["sent_out"] = df["appearances"]
     df["usage_share"] = df["appearances"] / df["player_battles"]
     df["win_rate"] = df["wins"] / df["appearances"]
+    df["baseline_win_rate"] = [MONTH_BASELINE[k] for k in zip(df["month"], df["rating_band"])]
+    df["win_rate_delta"] = df["win_rate"] - df["baseline_win_rate"]
     df["sent_out_rate"] = 1.0
     df[MONTHLY_COLS].to_parquet(agg / "pokemon_usage_monthly.parquet", index=False)
     return agg
@@ -386,9 +392,9 @@ def _points(data, species):
 
 def test_trend_months_are_listed_with_their_tail_flag_and_unknown_month_dropped(exported_trend):
     data = _trend_file(*exported_trend, "all")
-    assert data["months"] == [{"month": "2024-01", "player_battles": 1000, "tail": False},
-                              {"month": "2024-02", "player_battles": 800, "tail": False},
-                              {"month": "2024-03", "player_battles": 40, "tail": True}]
+    assert data["months"] == [{"month": "2024-01", "player_battles": 1000, "tail": False, "baseline_win_rate": 0.5},
+                              {"month": "2024-02", "player_battles": 800, "tail": False, "baseline_win_rate": 0.52},
+                              {"month": "2024-03", "player_battles": 40, "tail": True, "baseline_win_rate": 0.5}]
     assert set(_points(data, "Incineroar")) == {"2024-01", "2024-02", "2024-03"}      # tail point kept in the export
 
 
@@ -399,12 +405,28 @@ def test_trend_points_below_100_teams_are_dropped(exported_trend):
     assert (p["n"], p["usage_share"], p["win_rate"], p["win_ci_low"], p["win_ci_high"]) == (200, 0.25, 0.45, 0.38, 0.52)
 
 
+def test_trend_points_are_compared_with_the_bands_baseline_of_that_month(exported_trend):
+    out, manifest = exported_trend
+    assert _points(_trend_file(out, manifest, "all"), "Urshifu")["2024-02"]["win_rate_delta"] == -0.07    # 45% vs 52%
+    top = _trend_file(out, manifest, "1500_plus")
+    assert top["months"][0]["baseline_win_rate"] == 0.55
+    assert _points(top, "Incineroar")["2024-01"]["win_rate_delta"] == 0.05                           # 60% vs 55%
+
+
+def test_a_monthly_table_without_a_baseline_is_refused(tmp_path):
+    agg = _write_monthly(_write(tmp_path))
+    df = pd.read_parquet(agg / "pokemon_usage_monthly.parquet")
+    df.drop(columns=["baseline_win_rate", "win_rate_delta"]).to_parquet(agg / "pokemon_usage_monthly.parquet", index=False)
+    with pytest.raises(ExportError, match="usage_trend"):
+        export(agg, tmp_path / "web")
+
+
 def test_trend_bands_are_separate_files_and_all_is_taken_as_given(exported_trend):
     out, manifest = exported_trend
     assert [(f["rating_band"], f["path"]) for f in manifest["datasets"]["trend"]] == \
            [("all", f"trend/{REG}__all.json"), ("1500_plus", f"trend/{REG}__1500_plus.json")]
     top = _trend_file(out, manifest, "1500_plus")
-    assert top["months"] == [{"month": "2024-01", "player_battles": 300, "tail": False}]
+    assert top["months"] == [{"month": "2024-01", "player_battles": 300, "tail": False, "baseline_win_rate": 0.55}]
     assert _points(top, "Incineroar")["2024-01"]["n"] == 120 and _points(top, "Urshifu") == {}
     assert _points(_trend_file(out, manifest, "all"), "Incineroar")["2024-01"]["n"] == 400    # not 400 + 120
 
@@ -417,7 +439,9 @@ def test_trend_files_hold_only_allow_listed_keys(exported_trend):
         assert f["rows"] == len(data["rows"]) and f["bytes"] == (out / f["path"]).stat().st_size
         for r in data["rows"]:
             assert list(r) == ["species_id", "species", "points"]
-            assert all(list(p) == ["month", "n", "usage_share", "win_rate", "win_ci_low", "win_ci_high"] for p in r["points"])
+            assert all(list(p) == ["month", "n", "usage_share", "win_rate", "win_ci_low", "win_ci_high", "win_rate_delta"]
+                       for p in r["points"])
+        assert all(list(m) == ["month", "player_battles", "tail", "baseline_win_rate"] for m in data["months"])
 
 
 def test_a_monthly_table_without_rating_band_is_refused(tmp_path):
@@ -487,6 +511,17 @@ def test_tera_rate_and_types_of_a_species(exported_tera):
                             {"tera_type": "Grass", "events": 30, "type_share": 0.2}]       # most used first
 
 
+def test_tera_win_rates_are_compared_with_the_band_baseline(exported_tera):
+    out, manifest = exported_tera
+    # band baseline = the team usage baseline of that regulation x band (BR-09): all 619 / 1068, 1500_plus 112 / 240
+    files = {f["rating_band"]: json.loads((out / f["path"]).read_text(encoding="utf-8")) for f in manifest["datasets"]["tera"]}
+    assert (files["all"]["baseline_win_rate"], files["1500_plus"]["baseline_win_rate"]) == (0.57959, 0.46667)
+    inc = _tera(out, manifest, "1500_plus")["Incineroar"]
+    assert (inc["win_rate_tera_delta"], inc["win_rate_no_tera_delta"]) == (0.08333, None)   # 55% vs 46.7%; hidden stays hidden
+    urs = _tera(out, manifest, "all")["Urshifu"]
+    assert (urs["win_rate_tera_delta"], urs["win_rate_no_tera_delta"]) == (None, -0.10591)
+
+
 def test_tera_win_rates_and_types_with_fewer_than_100_games_are_hidden(exported_tera):
     rows = _tera(*exported_tera, "all")
     urs, cal = rows["Urshifu"], rows["Calyrex"]
@@ -507,11 +542,12 @@ def test_tera_files_hold_only_allow_listed_keys(exported_tera):
     out, manifest = exported_tera
     for f in manifest["datasets"]["tera"]:
         data = json.loads((out / f["path"]).read_text(encoding="utf-8"))
-        assert list(data) == ["regulation", "rating_band", "min_n", "rows"]
+        assert list(data) == ["regulation", "rating_band", "min_n", "baseline_win_rate", "rows"]
         assert f["rows"] == len(data["rows"]) and f["bytes"] == (out / f["path"]).stat().st_size
         for r in data["rows"]:
             assert list(r) == ["species_id", "species", "n", "tera_events", "tera_rate", "tera_rate_ci_low",
-                               "tera_rate_ci_high", "win_rate_tera", "win_rate_no_tera", "types"]
+                               "tera_rate_ci_high", "win_rate_tera", "win_rate_no_tera", "win_rate_tera_delta",
+                               "win_rate_no_tera_delta", "types"]
             assert all(list(t) == ["tera_type", "events", "type_share"] for t in r["types"])
 
 
@@ -530,7 +566,7 @@ def test_missing_tera_and_trend_tables_remove_stale_files(tmp_path):
         (out / d).mkdir(parents=True)
         (out / d / f"{REG}__all.json").write_text("{}", encoding="utf-8")
     manifest = export(_write(tmp_path), out)
-    assert manifest["datasets"]["tera"] == [] and manifest["schema_version"] == 4
+    assert manifest["datasets"]["tera"] == [] and manifest["schema_version"] == 5
     assert not any((out / d / f"{REG}__all.json").exists() for d in ("tera", "trend"))
 
 
@@ -555,3 +591,14 @@ def test_a_snapshot_date_that_is_not_iso_is_refused(tmp_path):
     with pytest.raises(SystemExit):
         main(["--agg", str(_write(tmp_path)), "--out", str(tmp_path / "web"), "--snapshot-date", "11/23/2026"])
     assert not (tmp_path / "web").exists()
+
+
+def test_manifest_reports_the_unrated_share_excluded_from_rating_bands(tmp_path):
+    # BR-11: player-battles without rating_before are in 'all' (and the 'unknown' band) but in no rating band
+    agg = _write(tmp_path)
+    pd.DataFrame({"regulation": [REG] * 3, "rating_band": ["all", "1500_plus", "unknown"], "battles": [500, None, None],
+                  "player_battles": [1000, 400, 125]}).to_csv(agg / "regulation_totals.csv", index=False)
+    assert export(agg, tmp_path / "web")["regulations"][0]["unrated_share"] == 0.125
+    pd.DataFrame({"regulation": [REG] * 2, "rating_band": ["all", "1500_plus"], "battles": [500, None],
+                  "player_battles": [1000, 400]}).to_csv(agg / "regulation_totals.csv", index=False)
+    assert export(agg, tmp_path / "web2")["regulations"][0]["unrated_share"] is None      # not reported, not guessed

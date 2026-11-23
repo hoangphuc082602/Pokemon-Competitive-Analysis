@@ -87,3 +87,12 @@ def test_band_rows_add_up_to_the_all_rows(trend):
     bands = usage[usage["rating_band"] != "all"].groupby(["month", "species_id"])["appearances"].sum()
     every = usage[usage["rating_band"] == "all"].set_index(["month", "species_id"])["appearances"]
     assert bands.sort_index().to_dict() == every.sort_index().to_dict()
+
+def test_win_rate_is_compared_with_the_bands_own_baseline_of_that_month(trend):
+    usage, _ = trend
+    # BR-09 per month: all species rows of that regulation x month x band, before any n filter
+    r = _row(usage, 892, "2024-01", "1200_1399")                         # b1 p1 (1250) won with every slot
+    assert (r["baseline_win_rate"], r["win_rate_delta"]) == (1.0, 0.0)
+    r = _row(usage, 892, "2024-01", "unknown")                           # b1 p2 (no rating) lost
+    assert (r["baseline_win_rate"], r["win_rate_delta"]) == (0.0, 0.0)
+    assert _row(usage, 892, "2024-02", "below_1200")["baseline_win_rate"] == 1.0   # b2 p2 (1100) won

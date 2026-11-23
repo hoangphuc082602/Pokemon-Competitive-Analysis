@@ -9,10 +9,11 @@ Reads pokemon_usage_stats (Parquet, in batches; CSV fallback in chunks) and regu
     partners/<regulation>__<band>.json     per species: its most frequent team partners with lift (pokemon_partner_stats)
     matchups/<regulation>__<band>.json     per species: team-level matchups furthest below / above the log5 expectation
                                            (pokemon_matchup_stats)
-    trend/<regulation>__<band>.json        upload months with player-battles and the `tail` flag, and per species its
-                                           monthly team usage (pokemon_usage_monthly; 'unknown' month left out)
-    tera/<regulation>__<band>.json         per species: Tera rate, win rate with / without Tera, Tera type split
-                                           (pokemon_tera_summary, pokemon_tera_types)
+    trend/<regulation>__<band>.json        upload months with player-battles, the `tail` flag and the band's baseline
+                                           of that month, and per species its monthly team usage with win_rate_delta
+                                           (pokemon_usage_monthly; 'unknown' month left out)
+    tera/<regulation>__<band>.json         per species: Tera rate, win rate with / without Tera and each vs the band
+                                           baseline, Tera type split (pokemon_tera_summary, pokemon_tera_types)
 Partners, matchups, trend and Tera are species level (all forms together), as built by partner_stats / matchup_stats /
 usage_trend / tera_stats; when those tables are absent their datasets are empty. Lift is co-occurrence, not synergy;
 matchups are about teams containing the species, not about the species on the field. Tail months stay in the trend
@@ -23,7 +24,9 @@ Business rules are applied here so the browser only displays (docs/ai-onboarding
                 never sent out are a '<species> (form unknown)' row, forms missing from the master data a
                 species-level 'species_only' row; BR-06: 'observed' rows count only teams where the form was revealed
     BR-08       every band is its own file; 'all' comes from the 'all' rows of the input, never from a sum of bands
-    BR-09       win_rate_delta = win rate - the band's own baseline (all species of that regulation x band, before the n filter)
+    BR-09       win_rate_delta = win rate - the band's own baseline (all species of that regulation x band, before the n filter);
+                trend: the baseline of that regulation x month x band (usage_trend); Tera: the team usage baseline of the band
+    BR-11       manifest regulations carry unrated_share: player-battles without a rating (in 'all', in no rating band)
     BR-10       rows (forms) with n < 100 player-battles are dropped; partner pairs with n < 100 teams and matchups
                 with n < 100 battles likewise; trend points with n < 100 teams; Tera rows with < 100 sent-out
                 appearances, a win rate with / without Tera on < 100 games (null), the type split on < 100 Tera events
@@ -42,7 +45,7 @@ import pyarrow.parquet as pq
 
 from python.analytics.pokemon_usage import wilson
 
-SCHEMA_VERSION = 4              # v4: trend + tera datasets (#14); v3: partners + matchups (#13); v2: one row per form (#24)
+SCHEMA_VERSION = 5              # v5: baselines for trend + Tera, unrated share (BR-11); v4: trend + tera datasets (#14); v3: partners + matchups (#13); v2: one row per form (#24)
 MIN_N = 100
 KEYS = ["regulation", "rating_band", "species_id", "species", "poke_id", "form", "form_basis"]
 NO_FORM = -1                     # poke_id of unobserved / species_only rows while grouping (NULL in the output)
@@ -60,14 +63,16 @@ OPPONENT_COLUMNS = ["species_id", "species", "n", "win_rate", "win_ci_low", "win
                     "expected_win_rate", "win_rate_vs_expected", "z_vs_expected"]
 PAIR_FILE_COLUMNS = ["regulation", "rating_band", "min_n", "rows"]
 MONTHLY_IN = ["regulation", "month", "rating_band", "species", "species_id", "appearances", "player_battles", "tail",
-              "usage_share", "win_rate", "win_ci_low", "win_ci_high"]
-POINT_COLUMNS = ["month", "n", "usage_share", "win_rate", "win_ci_low", "win_ci_high"]
+              "usage_share", "win_rate", "win_ci_low", "win_ci_high", "baseline_win_rate", "win_rate_delta"]
+POINT_COLUMNS = ["month", "n", "usage_share", "win_rate", "win_ci_low", "win_ci_high", "win_rate_delta"]
+MONTH_COLUMNS = ["month", "player_battles", "tail", "baseline_win_rate"]
 TREND_FILE_COLUMNS = ["regulation", "rating_band", "min_n", "months", "rows"]
 TERA_IN = ["regulation", "rating_band", "species", "species_id", "sent_out", "tera_events", "tera_rate",
            "tera_rate_ci_low", "tera_rate_ci_high", "win_rate_tera", "win_rate_no_tera"]
 TERA_TYPES_IN = ["regulation", "rating_band", "species_id", "tera_type", "events", "type_share"]
 TERA_COLUMNS = ["species_id", "species", "n", "tera_events", "tera_rate", "tera_rate_ci_low", "tera_rate_ci_high",
-                "win_rate_tera", "win_rate_no_tera", "types"]
+                "win_rate_tera", "win_rate_no_tera", "win_rate_tera_delta", "win_rate_no_tera_delta", "types"]
+TERA_FILE_COLUMNS = ["regulation", "rating_band", "min_n", "baseline_win_rate", "rows"]
 TERA_TYPE_COLUMNS = ["tera_type", "events", "type_share"]
 TOP_PARTNERS = 12               # most frequent partners kept per species
 TOP_OPPONENTS = 8               # matchups kept per species at each end of z_vs_expected
@@ -211,8 +216,8 @@ def trend_series(agg: Path, batch_size: int = 500_000) -> tuple[pd.DataFrame, pd
     try:
         batches = _batches(agg, "pokemon_usage_monthly", MONTHLY_IN, batch_size)
     except ExportError as e:
-        if "rating_band" in str(e):
-            raise ExportError(f"{e}: pokemon_usage_monthly predates rating bands, rerun python -m python.analytics.usage_trend")
+        if "has no column" in str(e):   # built before rating bands / monthly baselines
+            raise ExportError(f"{e}: pokemon_usage_monthly is out of date, rerun python -m python.analytics.usage_trend")
         raise
     if batches is None:
         return None
@@ -220,12 +225,14 @@ def trend_series(agg: Path, batch_size: int = 500_000) -> tuple[pd.DataFrame, pd
     for df in batches:
         df = df[df["month"].astype(str) != "unknown"].astype({"regulation": str, "month": str, "rating_band": str,
                                                                "species": str})
-        month_parts.append(df[["regulation", "rating_band", "month", "player_battles", "tail"]].drop_duplicates())
+        month_parts.append(df[["regulation", "rating_band", "month", "player_battles", "tail", "baseline_win_rate"]]
+                           .drop_duplicates(["regulation", "rating_band", "month"]))
         point_parts.append(df[pd.to_numeric(df["appearances"]) >= MIN_N])
     if not month_parts:                                   # table built but empty
         return None
     months = pd.concat(month_parts, ignore_index=True).drop_duplicates(["regulation", "rating_band", "month"])
-    months = months.astype({"player_battles": "int64"}).assign(tail=months["tail"].astype(str).str.lower() == "true")
+    months = months.astype({"player_battles": "int64", "baseline_win_rate": float})
+    months = months.assign(tail=months["tail"].astype(str).str.lower() == "true")
     points = pd.concat(point_parts, ignore_index=True).rename(columns={"appearances": "n"})
     points = points.astype({"species_id": "int64", "n": "int64"})
     return (months.sort_values(["regulation", "rating_band", "month"]).reset_index(drop=True),
@@ -248,10 +255,12 @@ def _write_trend_files(out: Path, trend: tuple[pd.DataFrame, pd.DataFrame] | Non
                 for (sid, sp), g in p.groupby(["species_id", "species"], sort=False)]
         rows.sort(key=lambda r: (r["species"], r["species_id"]))
         payload = {"regulation": reg, "rating_band": band, "min_n": MIN_N,
-                   "months": [{"month": str(r.month), "player_battles": int(r.player_battles), "tail": bool(r.tail)}
+                   "months": [{"month": str(r.month), "player_battles": int(r.player_battles), "tail": bool(r.tail),
+                               "baseline_win_rate": round(float(r.baseline_win_rate), 5)}
                               for r in m.itertuples(index=False)],
                    "rows": rows}
-        if list(payload) != TREND_FILE_COLUMNS or any(list(q) != POINT_COLUMNS for r in rows for q in r["points"]):
+        if list(payload) != TREND_FILE_COLUMNS or any(list(q) != POINT_COLUMNS for r in rows for q in r["points"]) \
+                or any(list(x) != MONTH_COLUMNS for x in payload["months"]):
             raise ExportError("trend file keys are not the allow-list")
         rel = f"trend/{reg}__{band}.json"
         files.append({"regulation": reg, "rating_band": band, "path": rel, "rows": len(rows),
@@ -285,14 +294,22 @@ def tera_tables(agg: Path, batch_size: int = 500_000) -> tuple[pd.DataFrame, pd.
             t.sort_values(keys + ["events", "tera_type"], ascending=[True, True, True, False, True]).reset_index(drop=True))
 
 
-def _write_tera_files(out: Path, tera: tuple[pd.DataFrame, pd.DataFrame] | None) -> list[dict]:
+def _write_tera_files(out: Path, tera: tuple[pd.DataFrame, pd.DataFrame] | None,
+                      baselines: dict[tuple[str, str], float]) -> list[dict]:
+    """Tera files; win rates with / without Tera are each compared with the team usage baseline of the band (BR-09).
+    A hidden win rate (null) has a null delta; a band without a team usage baseline has null baseline and deltas."""
     files = []
     if tera is None:
         return files
     summary, types = tera
     check_columns(list(summary.columns) + list(types.columns), "tera rows")
-    rates = ["tera_rate", "tera_rate_ci_low", "tera_rate_ci_high", "win_rate_tera", "win_rate_no_tera"]
+    rates = ["tera_rate", "tera_rate_ci_low", "tera_rate_ci_high", "win_rate_tera", "win_rate_no_tera",
+             "win_rate_tera_delta", "win_rate_no_tera_delta"]
     for (reg, band), s in summary.groupby(["regulation", "rating_band"], sort=False):
+        base = baselines.get((reg, band))
+        nan = float("nan")
+        s = s.assign(win_rate_tera_delta=s["win_rate_tera"] - base if base is not None else nan,
+                     win_rate_no_tera_delta=s["win_rate_no_tera"] - base if base is not None else nan)
         t = types[(types["regulation"] == reg) & (types["rating_band"] == band)]
         split = {sid: [{"tera_type": str(r.tera_type), "events": int(r.events), "type_share": round(float(r.type_share), 5)}
                        for r in g.itertuples(index=False)] for sid, g in t.groupby("species_id", sort=False)}
@@ -300,8 +317,9 @@ def _write_tera_files(out: Path, tera: tuple[pd.DataFrame, pd.DataFrame] | None)
                  "tera_events": int(r.tera_events),
                  **{c: None if pd.isna(getattr(r, c)) else round(float(getattr(r, c)), 5) for c in rates},
                  "types": split.get(int(r.species_id), [])} for r in s.itertuples(index=False)]
-        payload = {"regulation": reg, "rating_band": band, "min_n": MIN_N, "rows": rows}
-        if list(payload) != PAIR_FILE_COLUMNS or any(list(r) != TERA_COLUMNS for r in rows) \
+        payload = {"regulation": reg, "rating_band": band, "min_n": MIN_N,
+                   "baseline_win_rate": None if base is None else round(float(base), 5), "rows": rows}
+        if list(payload) != TERA_FILE_COLUMNS or any(list(r) != TERA_COLUMNS for r in rows) \
                 or any(list(x) != TERA_TYPE_COLUMNS for r in rows for x in r["types"]):
             raise ExportError("tera file keys are not the allow-list")
         rel = f"tera/{reg}__{band}.json"
@@ -397,12 +415,18 @@ def export(agg: Path, out: Path, batch_size: int = 500_000, snapshot_date: str |
     forms = usage.loc[usage["poke_id"] != NO_FORM, ["species", "form"]].drop_duplicates().sort_values(["species", "form"])
     mapping = [{"species": str(r.species), "form": str(r.form)} for r in forms.itertuples(index=False)]
     forms_file = {"path": "species_forms.json", "rows": len(mapping), "bytes": _write_json(out / "species_forms.json", mapping)}
+    baselines = {(str(r), str(b)): float(v) for (r, b), v in
+                 usage.groupby(["regulation", "rating_band"])["baseline_win_rate"].first().items()}
     regs = []
     for reg in sorted(usage["regulation"].unique()):
         t = totals[(totals["regulation"] == reg) & (totals["rating_band"] == "all")]
+        u = totals[(totals["regulation"] == reg) & (totals["rating_band"] == "unknown")]
+        everyone = float(t["player_battles"].iloc[0]) if len(t) else 0.0
         regs.append({"id": reg,
                      "battles": int(t["battles"].iloc[0]) if len(t) and pd.notna(t["battles"].iloc[0]) else None,
                      "player_battles": int(t["player_battles"].iloc[0]) if len(t) else None,
+                     # BR-11: player-battles without rating_before (in 'all', in no rating band); None when not reported
+                     "unrated_share": round(float(u["player_battles"].iloc[0]) / everyone, 5) if len(u) and everyone else None,
                      "bands": [f["rating_band"] for f in files if f["regulation"] == reg]})
     if snapshot_date is None:
         src = max((p.stat().st_mtime for p in agg.glob("pokemon_usage_stats.*")), default=None)
@@ -419,7 +443,7 @@ def export(agg: Path, out: Path, batch_size: int = 500_000, snapshot_date: str |
         "datasets": {"team_usage": files, "species_forms": forms_file,
                      "partners": _write_pair_files(out, "partners", partners, PARTNER_COLUMNS, "partners"),
                      "matchups": _write_pair_files(out, "matchups", matchups, OPPONENT_COLUMNS, "opponents"),
-                     "trend": _write_trend_files(out, trend), "tera": _write_tera_files(out, tera)},
+                     "trend": _write_trend_files(out, trend), "tera": _write_tera_files(out, tera, baselines)},
     }
     _write_json(out / "manifest.json", manifest)
     return manifest
@@ -439,6 +463,8 @@ def main(argv=None) -> int:
     print(f"schema v{m['schema_version']}, snapshot {m['snapshot_date']}, n >= {m['min_n']}")
     print(f"regulations ({len(m['regulations'])}): " + ", ".join(r["id"] for r in m["regulations"]))
     print(f"bands ({len(m['bands'])}): " + ", ".join(m["bands"]))
+    print("BR-11 unrated share (no rating, in no rating band): " + ", ".join(
+        f"{r['id']} {'n/a' if r['unrated_share'] is None else f'{100 * r['unrated_share']:.1f}%'}" for r in m["regulations"]))
     print(f"totals: {m['totals']['battles']:,} battles, {m['totals']['player_battles']:,} player-battles")
     print(f"team_usage: {len(files)} files, {sum(f['rows'] for f in files):,} rows, "
           f"{sum(on_disk.values()) / 1024:,.1f} KiB, largest {max(on_disk.values(), default=0) / 1024:,.1f} KiB")
