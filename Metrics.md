@@ -31,7 +31,8 @@ The scope is materialised as table `vgc_battles` (`migrations/002_vgc_battles.sq
   (`poke_id` x `form_basis` of `pokemon_usage_stats`), never a species sum. `n < 100` applies to each form row; the band
   baseline is all rows of the regulation x band. Rows without a form are kept and never guessed: `unobserved`
   (`Urshifu (form unknown)`) and `species_only` (form not in the master data, e.g. `Arceus-Fire`, at species level).
-  `observed` rows count only the teams where that form was revealed. `species_forms.json` (columns `species`, `form`,
+  `observed` rows count only the teams where that form was revealed; they are labelled `<Form> (seen in battle)` and stay
+  separate from the `listed` row of the same form (e.g. `Zacian-Crowned` named at team preview), two populations never summed. `species_forms.json` (columns `species`, `form`,
   one row per exported form) is the join key for later form-level tables. Manifest `schema_version` 2.
 - Plain `Zygarde` is the 50% form; Aura Break and Power Construct versions differ only by ability (see `battle_ability`).
 

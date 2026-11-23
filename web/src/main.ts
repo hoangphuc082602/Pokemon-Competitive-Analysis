@@ -52,19 +52,20 @@ function cell(text: string, cls?: string): HTMLTableCellElement {
   return td;
 }
 
-const FORM_TAG: Record<FormBasis, string> = { listed: "", observed: "seen in battle", unobserved: "never sent out",
+// "observed" rows already say "(seen in battle)" in their label; the note stays in the tooltip.
+const FORM_TAG: Record<FormBasis, string> = { listed: "", observed: "", unobserved: "never sent out",
   species_only: "species level" };
 
 function nameCell(r: UsageRow): HTMLTableCellElement {
   const td = cell(r.label);
   const note = formNote(r);
-  if (note) {
+  if (note) td.title = note;
+  if (FORM_TAG[r.form_basis]) {
     const tag = document.createElement("span");
     tag.className = "tag";
     tag.textContent = FORM_TAG[r.form_basis];
     tag.title = note;
     td.append(" ", tag);
-    td.title = note;
   }
   return td;
 }

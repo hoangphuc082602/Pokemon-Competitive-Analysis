@@ -99,13 +99,19 @@ def team_usage(agg: Path, batch_size: int = 500_000) -> pd.DataFrame:
     g["win_ci_low"], g["win_ci_high"] = wilson(g["wins"], g["appearances"])
     g["lead_rate"] = g["leads"] / g["appearances"]
     g["label"] = [_label(*v) for v in g[["species", "poke_id", "form", "form_basis"]].itertuples(index=False)]
+    dup = g[g.duplicated(["regulation", "rating_band", "label"], keep=False)]
+    if len(dup):
+        raise ExportError(f"rows share a label: {dup[['regulation', 'rating_band', 'label']].values.tolist()[:5]}")
     return g.sort_values(["regulation", "rating_band", "n", "label"], ascending=[True, True, False, True]).reset_index(drop=True)
 
 
 def _label(species: str, poke_id: int, form: str, form_basis: str) -> str:
-    """Display name of a row: the form ('calyrex-shadow' -> 'Calyrex-Shadow'), or the species with why it has no form."""
+    """Display name of a row: the form ('calyrex-shadow' -> 'Calyrex-Shadow'), or the species with why it has no form.
+    A form revealed in battle is a different population from the same form named at team preview (BR-06), e.g.
+    'Zacian-Crowned' and 'Zacian-Crowned (seen in battle)': two rows, never summed, never the same label."""
     if poke_id != NO_FORM and form:
-        return "-".join(part.capitalize() for part in form.split("-"))
+        name = "-".join(part.capitalize() for part in form.split("-"))
+        return f"{name} (seen in battle)" if form_basis == "observed" else name
     return f"{species} (form unknown)" if form_basis == "unobserved" else f"{species} (form not in master data)"
 
 

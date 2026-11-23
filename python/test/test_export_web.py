@@ -9,7 +9,7 @@ from python.analytics.export_web import ExportError, export
 REG = "gen9vgc2024regg"
 
 
-def _write(tmp_path, extra_cols=None):
+def _write(tmp_path, extra_cols=None, extra_rows=()):
     """Synthetic aggregates as written by pokemon_usage (form grain, 'all' band rows included).
     The export reads aggregates, not event tables, so this mirrors test_pokemon_usage._write at the next layer:
     counts chosen so that 'all' differs from the sum of bands and n crosses the threshold."""
@@ -27,6 +27,7 @@ def _write(tmp_path, extra_cols=None):
         ("1500_plus", "Urshifu", 892, 10191, "urshifu-rapid-strike", "observed", 100, 40, 10),
         ("1500_plus", "Rare", 1, 1, "rare", "listed", 20, 0, 0),
         # 'all' deliberately differs from the sum of bands: the export must take 'all' rows as given
+        *extra_rows,
     ]
     df = pd.DataFrame(rows, columns=["rating_band", "species", "species_id", "poke_id", "form", "form_basis",
                                      "appearances", "wins", "leads"])
@@ -59,7 +60,7 @@ def _rows(out, manifest, band):
 
 def test_forms_below_100_player_battles_are_not_exported(exported):
     rows = _rows(*exported, "all")
-    assert set(rows) == {"Urshifu-Rapid-Strike", "Urshifu (form unknown)", "Incineroar", "Calyrex-Shadow",
+    assert set(rows) == {"Urshifu-Rapid-Strike (seen in battle)", "Urshifu (form unknown)", "Incineroar", "Calyrex-Shadow",
                          "Arceus (form not in master data)"}                  # Calyrex-Ice 99 < 100 though species 299
     assert all(r["n"] >= 100 for r in rows.values())
 
@@ -67,19 +68,22 @@ def test_forms_below_100_player_battles_are_not_exported(exported):
 def test_a_masked_family_never_sent_out_is_its_own_row_and_never_guessed(exported):
     rows = _rows(*exported, "all")
     unknown = rows["Urshifu (form unknown)"]
-    assert (unknown["species"], unknown["poke_id"], unknown["form"], unknown["form_basis"]) ==            ("Urshifu", None, None, "unobserved")
-    assert (unknown["n"], rows["Urshifu-Rapid-Strike"]["n"]) == (120, 150)   # unobserved share 120 / 270
-    assert rows["Urshifu-Rapid-Strike"]["form_basis"] == "observed"
+    assert (unknown["species"], unknown["poke_id"], unknown["form"], unknown["form_basis"]) == \
+           ("Urshifu", None, None, "unobserved")
+    assert (unknown["n"], rows["Urshifu-Rapid-Strike (seen in battle)"]["n"]) == (120, 150)   # unobserved share 120 / 270
+    assert rows["Urshifu-Rapid-Strike (seen in battle)"]["form_basis"] == "observed"
 
 
 def test_a_form_missing_from_the_master_data_stays_at_species_level(exported):
     arceus = _rows(*exported, "all")["Arceus (form not in master data)"]
-    assert (arceus["species_id"], arceus["poke_id"], arceus["form"], arceus["form_basis"], arceus["n"]) ==            (493, None, None, "species_only", 100)
+    assert (arceus["species_id"], arceus["poke_id"], arceus["form"], arceus["form_basis"], arceus["n"]) == \
+           (493, None, None, "species_only", 100)
 
 
 def test_listed_forms_of_one_species_are_separate_rows(exported):
     shadow = _rows(*exported, "all")["Calyrex-Shadow"]
-    assert (shadow["species"], shadow["form"], shadow["poke_id"], shadow["form_basis"]) ==            ("Calyrex", "calyrex-shadow", 10193, "listed")
+    assert (shadow["species"], shadow["form"], shadow["poke_id"], shadow["form_basis"]) == \
+           ("Calyrex", "calyrex-shadow", 10193, "listed")
     assert (shadow["n"], shadow["win_rate"], shadow["lead_rate"]) == (200, 0.6, 0.25)   # not the species total 299
 
 
@@ -169,3 +173,15 @@ def test_species_form_mapping_lists_each_exported_form_once(exported):
                     {"species": "Incineroar", "form": "incineroar"},
                     {"species": "Urshifu", "form": "urshifu-rapid-strike"}]   # in two bands, listed once
     assert (entry["rows"], entry["bytes"]) == (3, (out / entry["path"]).stat().st_size)
+
+
+def test_a_form_both_listed_and_revealed_in_battle_keeps_two_distinguishable_rows(tmp_path):
+    """Zacian-Crowned is named at team preview by some teams and masked ('Zacian-*') then revealed for others:
+    two populations (BR-06), never summed, and the two rows must not share a label."""
+    zacian = [("all", "Zacian", 888, 10188, "zacian-crowned", "listed", 100, 50, 0),
+              ("all", "Zacian", 888, 10188, "zacian-crowned", "observed", 150, 90, 0)]
+    out = tmp_path / "web"
+    manifest = export(_write(tmp_path, extra_rows=zacian), out)
+    rows = _file(out, manifest, "all")[1]["rows"]
+    zac = {r["label"]: (r["form_basis"], r["n"]) for r in rows if r["species"] == "Zacian"}
+    assert zac == {"Zacian-Crowned": ("listed", 100), "Zacian-Crowned (seen in battle)": ("observed", 150)}
