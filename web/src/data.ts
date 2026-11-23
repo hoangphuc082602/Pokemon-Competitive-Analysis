@@ -251,15 +251,23 @@ export interface ChartSeries {
   points: TrendPoint[];       // the species' points in those months
   tailMonths: string[];       // months left out of the chart, disclosed under it
   hiddenTailPoints: number;   // points of the species in tail months (exported, not charted)
+  monthBattles: Record<string, number>;   // player-battles of this band in each charted month (the usage denominator)
+  thinMonths: string[];       // charted months with < 5% of this band's busiest month (tail is per regulation, not per band)
 }
+
+const THIN_SHARE = 0.05;   // same 5% cut as the per-regulation tail
 
 /** Chart data of one species: tail months are excluded from the chart and listed for disclosure. */
 export function chartPoints(file: TrendFile, speciesId: number): ChartSeries {
   const months = [...file.months].sort((a, b) => a.month.localeCompare(b.month));
   const tail = new Set(months.filter((x) => x.tail).map((x) => x.month));
   const all = file.rows.find((r) => r.species_id === speciesId)?.points ?? [];
+  const charted = months.filter((x) => !x.tail);
+  const peak = Math.max(0, ...months.map((x) => x.player_battles));
   return {
-    months: months.filter((x) => !x.tail).map((x) => x.month),
+    monthBattles: Object.fromEntries(charted.map((x) => [x.month, x.player_battles])),
+    thinMonths: charted.filter((x) => x.player_battles < THIN_SHARE * peak).map((x) => x.month),
+    months: charted.map((x) => x.month),
     points: all.filter((p) => !tail.has(p.month)).sort((a, b) => a.month.localeCompare(b.month)),
     tailMonths: [...tail],
     hiddenTailPoints: all.filter((p) => tail.has(p.month)).length,

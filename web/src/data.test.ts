@@ -231,6 +231,15 @@ describe("monthly trend", () => {
     expect(c.hiddenTailPoints).toBe(1);
   });
 
+  it("gives the band's battles of each charted month and flags months with few battles in this band", () => {
+    // tail is per regulation, so a band can have a tiny month that is still charted
+    const thin = { ...file, months: file.months.map((x) => (x.month === "2024-03" ? { ...x, player_battles: 40 } : x)) };
+    const c = chartPoints(thin, 727);
+    expect(c.monthBattles).toEqual({ "2024-01": 1000, "2024-02": 900, "2024-03": 40 });
+    expect(c.thinMonths).toEqual(["2024-03"]);   // 40 < 5% of the band's busiest month (1000)
+    expect(chartPoints(file, 727).thinMonths).toEqual([]);
+  });
+
   it("gives an empty series for a species without points", () => {
     const c = chartPoints(file, 1);
     expect(c.points).toEqual([]);

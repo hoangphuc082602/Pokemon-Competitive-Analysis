@@ -2,6 +2,7 @@ import "./style.css";
 import {
   DataError,
   chartPoints,
+  type ChartSeries,
   filterRows,
   formNote,
   loadPairFile,
@@ -172,7 +173,8 @@ function renderPartners(list: Partner[] | undefined, minN: number) {
 
 function renderMatchups(list: Opponent[] | undefined, minN: number) {
   if (!list?.length) return emptyRow(matchupBody, `No matchup reaches n ≥ ${minN} battles in this band.`, 7);
-  matchupBody.replaceChildren(...list.map((o) => {
+  const byWinRate = [...list].sort((a, b) => b.win_rate - a.win_rate);   // highest win rate first
+  matchupBody.replaceChildren(...byWinRate.map((o) => {
     const tr = document.createElement("tr");
     const name = document.createElement("td");
     name.append(speciesLink(o.species, o.species_id));
@@ -196,8 +198,11 @@ function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string,
   return el;
 }
 
-/** Line chart of monthly usage share: non-tail months on x, gaps where n < min_n, native tooltip per point. */
-function drawTrend(months: string[], points: TrendFile["rows"][number]["points"]) {
+/** Line chart of monthly usage share: non-tail months on x, gaps where n < min_n, native tooltip per point.
+ *  Months with few battles in this band stay charted, drawn hollow and named in the tooltip. */
+function drawTrend(c: ChartSeries, band: string) {
+  const { months, points } = c;
+  const thin = new Set(c.thinMonths);
   const W = 640, H = 220, L = 48, R = 16, T = 12, B = 28;
   const top = Math.max(...points.map((p) => p.usage_share), 0.01);
   const step = top > 0.4 ? 0.1 : top > 0.2 ? 0.05 : top > 0.08 ? 0.02 : 0.01;
@@ -212,10 +217,14 @@ function drawTrend(months: string[], points: TrendFile["rows"][number]["points"]
     t.textContent = pct(v, 0);
     root.append(t);
   }
-  const every = Math.ceil(months.length / 8);
+  // every k-th month plus the last; a regular label too close to the last is skipped so labels never overlap,
+  // and the end labels are anchored inside the chart so they are not clipped
+  const every = Math.ceil(months.length / 6);
+  const last = months.length - 1;
   months.forEach((m, i) => {
-    if (i % every && i !== months.length - 1) return;
-    const t = svg("text", { x: x(i), y: H - 8, "text-anchor": "middle", class: "axis" });
+    if (i !== last && (i % every || last - i < every)) return;
+    const anchor = months.length === 1 ? "middle" : i === 0 ? "start" : i === last ? "end" : "middle";
+    const t = svg("text", { x: x(i), y: H - 8, "text-anchor": anchor, class: "axis" });
     t.textContent = m;
     root.append(t);
   });
@@ -236,10 +245,13 @@ function drawTrend(months: string[], points: TrendFile["rows"][number]["points"]
     if (!p) return;
     const g = svg("g", { class: "pt", tabindex: 0 });
     const title = svg("title", {});
-    title.textContent = `${m}: ${pct(p.usage_share)} of teams (n ${fmt.format(p.n)}); win rate ${pct(p.win_rate)} ` +
-      `(95% CI ${pct(p.win_ci_low)}–${pct(p.win_ci_high)})`;
+    const battles = c.monthBattles[m];
+    title.textContent = `${m} · band “${band}”\n` +
+      `Usage ${pct(p.usage_share)}: ${fmt.format(p.n)} of ${battles === undefined ? "?" : fmt.format(battles)} teams\n` +
+      `Win rate ${pct(p.win_rate)} (95% CI ${pct(p.win_ci_low)}–${pct(p.win_ci_high)})` +
+      (thin.has(m) ? `\nFew battles in this band this month (< 5% of its busiest month): read with care.` : "");
     g.append(title, svg("circle", { cx: x(i), cy: y(p.usage_share), r: 12, class: "hit" }),
-      svg("circle", { cx: x(i), cy: y(p.usage_share), r: 4, class: "dot" }));
+      svg("circle", { cx: x(i), cy: y(p.usage_share), r: 4, class: thin.has(m) ? "dot thin" : "dot" }));
     root.append(g);
   });
   trendChart.replaceChildren(root);
@@ -257,12 +269,19 @@ function renderTrend(file: TrendFile | null, id: number) {
   trendContext.textContent = c.points.length
     ? `Share of teams per upload month, completed ${file.regulation} battles, rating band “${bandName(file.rating_band)}”; ${c.points.length} of ${c.months.length} months with n ≥ ${file.min_n} teams.`
     : `No month reaches n ≥ ${file.min_n} teams for this species in this band.`;
-  if (c.points.length) drawTrend(c.months, c.points);
+  if (c.points.length) drawTrend(c, bandName(file.rating_band));
+  const notes: string[] = [];
   if (c.tailMonths.length) {
-    trendTail.textContent = `Not charted: ${c.tailMonths.join(", ")} — tail month(s) with fewer than 5% of the busiest ` +
+    notes.push(`Not charted: ${c.tailMonths.join(", ")} — tail month(s) with fewer than 5% of the busiest ` +
       `month's battles (the format is ending; a different, tiny population)` +
-      (c.hiddenTailPoints ? `; ${c.hiddenTailPoints} value(s) of this species there are in the table view.` : ".");
+      (c.hiddenTailPoints ? `; ${c.hiddenTailPoints} value(s) of this species there are in the table view.` : "."));
   }
+  const thinCharted = c.thinMonths.filter((mo) => c.points.some((p) => p.month === mo));
+  if (thinCharted.length) {
+    notes.push(`Hollow points (${thinCharted.join(", ")}): few battles in this band that month (< 5% of its busiest ` +
+      `month); hover for the counts.`);
+  }
+  trendTail.textContent = notes.join(" ");
   const tail = new Set(c.tailMonths);
   const rows = (file.rows.find((r) => r.species_id === id)?.points ?? []).slice().sort((a, b) => a.month.localeCompare(b.month));
   trendBody.replaceChildren(...rows.map((p) => {
