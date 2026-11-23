@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 # DEFENSIVE ABILITIES
 DEFENSIVE_ABILITY_IMMUNITIES = {
     "levitate": ["ground"],
@@ -50,6 +52,13 @@ def normalize_ability_name(ability):
 
 # BASE TYPE LOOKUP
 def get_type_multiplier(type_chart_df,attack_type,defense_type):
+    """type_chart_df: DataFrame (attack_type, defense_type, multiplier) hoặc Mapping
+    {(attack_type, defense_type): multiplier} với key lowercase (ADR-014, chạy Pyodide không cần pandas).
+    Cặp không có trong chart -> 1.0."""
+    if isinstance(type_chart_df, Mapping):
+        return float(
+            type_chart_df.get((attack_type.lower(), defense_type.lower()), 1.0)
+        )
     result = type_chart_df[
         (type_chart_df["attack_type"]== attack_type.lower())
         &

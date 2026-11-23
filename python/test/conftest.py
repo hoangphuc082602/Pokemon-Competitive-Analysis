@@ -27,6 +27,18 @@ def type_chart_df():
     return pd.DataFrame(rows, columns=["attack_type", "defense_type", "multiplier"])
 
 
+@pytest.fixture(params=["dataframe", "mapping"])
+def type_chart(request, type_chart_df):
+    """Cùng type chart ở hai dạng mà type_calc chấp nhận (ADR-014):
+    DataFrame (Streamlit) hoặc mapping {(attack_type, defense_type): multiplier} (Pyodide, không pandas)."""
+    if request.param == "dataframe":
+        return type_chart_df
+    return {
+        (atk, dfn): mult
+        for atk, dfn, mult in type_chart_df[["attack_type", "defense_type", "multiplier"]].itertuples(index=False)
+    }
+
+
 @pytest.fixture
 def nature_df():
     """Mã stat theo PokéAPI: 2=atk 3=def 4=spatk 5=spdef 6=spe."""
