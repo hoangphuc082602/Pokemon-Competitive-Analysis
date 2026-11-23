@@ -62,12 +62,12 @@ def test_2hko_partial():
 
 
 # ---------- calculate_damage ----------
-def test_stab_super_effective_known_values(type_chart_df, battler, fixed_roll):
+def test_stab_super_effective_known_values(type_chart, battler, fixed_roll):
     attacker = battler(["fire"])
     defender = battler(["grass"], hp=100)
     # base 37.2 * STAB 1.5 * type 2.0 = 111.6
     fixed_roll(1.0)
-    result = calculate_damage(attacker, defender, move("fire"), type_chart_df)
+    result = calculate_damage(attacker, defender, move("fire"), type_chart)
 
     assert result["damage"] == 111
     assert result["max_damage"] == 111
@@ -80,57 +80,57 @@ def test_stab_super_effective_known_values(type_chart_df, battler, fixed_roll):
     assert result["category"] == "physical"
 
 
-def test_low_roll_uses_085(type_chart_df, battler, fixed_roll):
+def test_low_roll_uses_085(type_chart, battler, fixed_roll):
     fixed_roll(0.85)
-    result = calculate_damage(battler(["fire"]), battler(["grass"], hp=100), move("fire"), type_chart_df)
+    result = calculate_damage(battler(["fire"]), battler(["grass"], hp=100), move("fire"), type_chart)
     assert result["damage"] == result["min_damage"] == 94
 
 
-def test_no_stab_neutral(type_chart_df, battler, fixed_roll):
+def test_no_stab_neutral(type_chart, battler, fixed_roll):
     fixed_roll(1.0)
     # attacker không phải hệ normal, normal vs grass không có trong chart -> 1x; base 37.2
-    result = calculate_damage(battler(["fire"]), battler(["grass"]), move("normal"), type_chart_df)
+    result = calculate_damage(battler(["fire"]), battler(["grass"]), move("normal"), type_chart)
     assert (result["stab"], result["type_modifier"]) == (1, 1.0)
     assert result["max_damage"] == 37 and result["min_damage"] == 31
 
 
-def test_special_move_uses_spatk_and_spdef(type_chart_df, battler, fixed_roll):
+def test_special_move_uses_spatk_and_spdef(type_chart, battler, fixed_roll):
     fixed_roll(1.0)
     attacker = battler(["fire"], spatk=150)
     defender = battler(["grass"], spdef=100)
     # (22 * 80 * 150 / 100) / 50 + 2 = 54.8 ; water vs grass = 1x ; attacker không có STAB water
-    result = calculate_damage(attacker, defender, move("water", damage_class="special"), type_chart_df)
+    result = calculate_damage(attacker, defender, move("water", damage_class="special"), type_chart)
     assert result["max_damage"] == 54
     assert result["category"] == "special"
 
 
-def test_immune_target_takes_zero(type_chart_df, battler, fixed_roll):
+def test_immune_target_takes_zero(type_chart, battler, fixed_roll):
     fixed_roll(1.0)
-    result = calculate_damage(battler(["ground"]), battler(["flying"]), move("ground"), type_chart_df)
+    result = calculate_damage(battler(["ground"]), battler(["flying"]), move("ground"), type_chart)
     assert result["damage"] == 0
     assert result["damage_percent"] == 0.0
     assert result["ohko_chance"] == 0.0
     assert result["type_modifier"] == 0.0
 
 
-def test_random_roll_stays_within_min_max(type_chart_df, battler):
+def test_random_roll_stays_within_min_max(type_chart, battler):
     attacker, defender = battler(["fire"]), battler(["grass"], hp=100)
     for _ in range(200):
-        r = calculate_damage(attacker, defender, move("fire"), type_chart_df)
+        r = calculate_damage(attacker, defender, move("fire"), type_chart)
         assert r["min_damage"] <= r["damage"] <= r["max_damage"]
 
 
 # ---------- STAB theo hệ SAU khi ability đổi hệ ----------
-def test_pixilate_sylveon_gets_stab_on_converted_move(type_chart_df, battler, fixed_roll):
+def test_pixilate_sylveon_gets_stab_on_converted_move(type_chart, battler, fixed_roll):
     fixed_roll(1.0)
     attacker = battler(["fairy"], ability="pixilate")
-    result = calculate_damage(attacker, battler(["dragon"]), move("normal"), type_chart_df)
+    result = calculate_damage(attacker, battler(["dragon"]), move("normal"), type_chart)
     assert result["stab"] == 1.5          # normal -> fairy, attacker là hệ fairy
     assert result["type_modifier"] == 2.0  # fairy vs dragon
 
 
-def test_pixilate_without_matching_type_has_no_stab(type_chart_df, battler, fixed_roll):
+def test_pixilate_without_matching_type_has_no_stab(type_chart, battler, fixed_roll):
     fixed_roll(1.0)
     attacker = battler(["normal"], ability="pixilate")   # move thành fairy, nhưng user không phải hệ fairy
-    result = calculate_damage(attacker, battler(["dragon"]), move("normal"), type_chart_df)
+    result = calculate_damage(attacker, battler(["dragon"]), move("normal"), type_chart)
     assert result["stab"] == 1
