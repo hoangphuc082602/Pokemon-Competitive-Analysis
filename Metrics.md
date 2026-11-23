@@ -34,6 +34,11 @@ The scope is materialised as table `vgc_battles` (`migrations/002_vgc_battles.sq
   `observed` rows count only the teams where that form was revealed; they are labelled `<Form> (seen in battle)` and stay
   separate from the `listed` row of the same form (e.g. `Zacian-Crowned` named at team preview), two populations never summed. `species_forms.json` (columns `species`, `form`,
   one row per exported form) is the join key for later form-level tables. Manifest `schema_version` 2.
+- **Form typing and base stats (#25, schema v6):** `species_forms.json` adds `poke_id`, `type_1`, `type_2`, `hp`, `atk`,
+  `def`, `spatk`, `spdef`, `spe` per form, from PokéAPI (mechanics, BR-16) joined on `poke_id` (never `species_id`: forms
+  of one species differ, e.g. Urshifu Single / Rapid Strike). `unobserved` / `species_only` rows have no `poke_id` and get
+  no typing or stats (BR-05, shown as unknown); a form missing from the master CSVs keeps nulls, nothing is borrowed from
+  another form. Fact (master data), not a metric: no `n`.
 - Plain `Zygarde` is the 50% form; Aura Break and Power Construct versions differ only by ability (see `battle_ability`).
 
 ## 3. Metrics

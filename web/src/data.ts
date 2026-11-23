@@ -1,7 +1,7 @@
 // Typed loaders and selectors for the static data written by python/analytics/export_web.py.
 // The browser only displays already-correct rows: one regulation x one rating band at a time, never combined.
 
-export const SCHEMA_VERSION = 5;   // v5: band baselines for trend + tera, unrated share; v4: trend + tera (#14); v3: partners + matchups (#13); v2: one row per form (#24); v1 was species level
+export const SCHEMA_VERSION = 6;   // v6: species_forms with poke_id, typing, base stats (#25); v5: band baselines for trend + tera, unrated share; v4: trend + tera (#14); v3: partners + matchups (#13); v2: one row per form (#24); v1 was species level
 
 export interface FileEntry {
   regulation: string;
@@ -137,6 +137,23 @@ export interface PairFile {
   rows: SpeciesEntry[];
 }
 
+/** PokéAPI typing and base stats of one form (species_forms.json); null when the form is missing from the master data. */
+export interface FormMaster {
+  species: string;
+  form: string;
+  poke_id: number;
+  type_1: string | null;
+  type_2: string | null;      // null for a monotype form
+  hp: number | null;
+  atk: number | null;
+  def: number | null;
+  spatk: number | null;
+  spdef: number | null;
+  spe: number | null;
+}
+
+export const STAT_KEYS = ["hp", "atk", "def", "spatk", "spdef", "spe"] as const;
+
 /** How the form of a row is known (pokemon_usage_stats.form_basis). */
 export type FormBasis = "listed" | "observed" | "unobserved" | "species_only";
 
@@ -210,6 +227,37 @@ export async function loadTeamUsage(m: Manifest, regulation: string, band: strin
     throw new DataError("mismatch", `${entry.path} holds ${String(data.regulation)} / ${String(data.rating_band)}`);
   }
   return data as unknown as TeamUsage;
+}
+
+/** species_forms.json indexed by poke_id. */
+export async function loadSpeciesForms(m: Manifest, fetchJson: FetchJson, base: string): Promise<Map<number, FormMaster>> {
+  const path = m.datasets.species_forms.path;
+  const data = await fetchJson(base + path);
+  if (!Array.isArray(data) || !data.every((f) => isObject(f) && typeof f.poke_id === "number")) {
+    throw new DataError("invalid", `${path} is not a list of forms`);
+  }
+  return new Map((data as FormMaster[]).map((f) => [f.poke_id, f]));
+}
+
+/** Typing / stats of a row's own form, joined on poke_id. A row without a poke_id (form unknown, species level)
+ * gets nothing: no typing or stats are guessed from the species (BR-05). */
+export function formMaster(index: Map<number, FormMaster>, r: UsageRow): FormMaster | undefined {
+  return r.poke_id === null ? undefined : index.get(r.poke_id);
+}
+
+const title = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+
+/** "Fighting / Water", "Electric", or null when the typing is unknown. */
+export function typeLabel(f: FormMaster | undefined): string | null {
+  if (!f?.type_1) return null;
+  return [f.type_1, f.type_2].filter((t): t is string => !!t).map(title).join(" / ");
+}
+
+/** Sum of the six base stats, or null when any is unknown. */
+export function baseStatTotal(f: FormMaster | undefined): number | null {
+  if (!f) return null;
+  const v = STAT_KEYS.map((k) => f[k]);
+  return v.every((x): x is number => typeof x === "number") ? v.reduce((a, b) => a + b, 0) : null;
 }
 
 type BandDataset = PairDataset | "trend" | "tera";

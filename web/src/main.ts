@@ -1,7 +1,13 @@
 import "./style.css";
 import {
   DataError,
+  STAT_KEYS,
+  baseStatTotal,
   chartPoints,
+  formMaster,
+  loadSpeciesForms,
+  typeLabel,
+  type FormMaster,
   pageList,
   paginate,
   regulationLabel,
@@ -138,6 +144,25 @@ function nameCell(r: UsageRow): HTMLTableCellElement {
   return td;
 }
 
+/** PokéAPI typing / base stats per poke_id (species_forms.json); empty until loaded. */
+let forms = new Map<number, FormMaster>();
+const STAT_LABEL: Record<(typeof STAT_KEYS)[number], string> = { hp: "HP", atk: "Atk", def: "Def", spatk: "SpA",
+  spdef: "SpD", spe: "Spe" };
+
+/** Typing and base stat total of the row's own form; unknown ("—") for a row without a form: nothing is guessed (BR-05). */
+function formCells(r: UsageRow): HTMLTableCellElement[] {
+  const f = formMaster(forms, r);
+  const why = r.poke_id === null ? "Form unknown: no typing or base stats are guessed from the species"
+    : "Not in the PokéAPI master data";
+  const types = typeLabel(f);
+  const bst = baseStatTotal(f);
+  const t = cell(types ?? "—", types ? "" : "muted");
+  const b = cell(bst === null ? "—" : String(bst), bst === null ? "num muted" : "num");
+  if (!types) t.title = why;
+  b.title = bst === null ? why : STAT_KEYS.map((k) => `${STAT_LABEL[k]} ${f![k]}`).join(" · ");
+  return [t, b];
+}
+
 const PAGE_SIZE = 15;
 /** Keep the address bar in step with the filters (page included), so a refresh shows the same view. */
 const syncUrl = () => history.replaceState(null, "", writeFilters(filters) + location.hash);
@@ -175,6 +200,7 @@ function renderTable(data: TeamUsage, query: string) {
     tr.append(
       cell(String(rank), "num muted"),
       nameCell(r),
+      ...formCells(r),
       cell(fmt.format(r.n), "num"),
       cell(pct(r.usage_share), "num"),
       cell(pct(r.win_rate), "num"),
@@ -184,7 +210,7 @@ function renderTable(data: TeamUsage, query: string) {
     );
     return tr;
   }));
-  if (!rows.length) emptyRow(tbody, query ? `No Pokémon matches “${query}”.` : "No form reaches the minimum sample size.", 8);
+  if (!rows.length) emptyRow(tbody, query ? `No Pokémon matches “${query}”.` : "No form reaches the minimum sample size.", 10);
 }
 
 function setContext(data: TeamUsage) {
@@ -421,6 +447,11 @@ async function start() {
     `(${fmt.format(manifest.totals.player_battles)} player-battles) across ${manifest.regulations.length} regulations.`;
 
   regName = (id) => regulationLabel(manifest, id);
+  try {
+    forms = await loadSpeciesForms(manifest, fetchJson, BASE);
+  } catch (e) {   // the usage table still works; typing and stats then show as unknown
+    console.warn(`species_forms.json not loaded: ${e instanceof Error ? e.message : String(e)}`);
+  }
   filters = readFilters(location.search, manifest);
   let current: TeamUsage | null = null;
   type Detail = { partners: PairFile | null; matchups: PairFile | null; trend: TrendFile | null; tera: TeraFile | null };

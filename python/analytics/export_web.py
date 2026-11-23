@@ -6,7 +6,8 @@ Reads pokemon_usage_stats (Parquet, in batches; CSV fallback in chunks) and regu
     manifest.json                          schema version, snapshot date, regulations (with the dim_regulation label),
                                            bands, row counts, file sizes
     team_usage/<regulation>__<band>.json   form-level team usage of one regulation x rating band
-    species_forms.json                     species <-> form mapping of every form in the team usage files
+    species_forms.json                     species <-> form mapping of every form in the team usage files, with its
+                                           PokéAPI poke_id, typing and six base stats (--master CSVs, joined on poke_id)
     partners/<regulation>__<band>.json     per species: its most frequent team partners with lift (pokemon_partner_stats)
     matchups/<regulation>__<band>.json     per species: team-level matchups furthest below / above the log5 expectation
                                            (pokemon_matchup_stats)
@@ -47,7 +48,7 @@ import pyarrow.parquet as pq
 from python.analytics.dim_tables import parse_regulation
 from python.analytics.pokemon_usage import wilson
 
-SCHEMA_VERSION = 5              # v5: baselines for trend + Tera, unrated share (BR-11); v4: trend + tera datasets (#14); v3: partners + matchups (#13); v2: one row per form (#24)
+SCHEMA_VERSION = 6              # v6: species_forms with poke_id, typing and base stats (#25); v5: baselines for trend + Tera, unrated share (BR-11); v4: trend + tera datasets (#14); v3: partners + matchups (#13); v2: one row per form (#24)
 MIN_N = 100
 KEYS = ["regulation", "rating_band", "species_id", "species", "poke_id", "form", "form_basis"]
 NO_FORM = -1                     # poke_id of unobserved / species_only rows while grouping (NULL in the output)
@@ -76,7 +77,10 @@ TERA_COLUMNS = ["species_id", "species", "n", "tera_events", "tera_rate", "tera_
                 "win_rate_tera", "win_rate_no_tera", "win_rate_tera_delta", "win_rate_no_tera_delta", "types"]
 TERA_FILE_COLUMNS = ["regulation", "rating_band", "min_n", "baseline_win_rate", "rows"]
 TERA_TYPE_COLUMNS = ["tera_type", "events", "type_share"]
-TOP_PARTNERS = 12               # most frequent partners kept per species
+STAT_COLUMNS = ["hp", "atk", "def", "spatk", "spdef", "spe"]
+FORM_COLUMNS = ["species", "form", "poke_id", "type_1", "type_2", *STAT_COLUMNS]
+MASTER_FILES = ("stats_raw.csv", "pokemon_type_raw.csv", "data_type.csv")   # crawl_data: pokemon_stats, data_pokemon, data_type
+TOP_PARTNERS = 12              # most frequent partners kept per species
 TOP_OPPONENTS = 8               # matchups kept per species at each end of z_vs_expected
 FORBIDDEN = re.compile(r"user|replay|battle_id|player_side|^side$|^p[12]_|rating_before|nickname|pokemon_name", re.I)
 BAND_ORDER = ["all", "below_1200", "1200_1399", "1400_1499", "1500_plus", "unknown"]
@@ -361,6 +365,56 @@ def _write_pair_files(out: Path, dataset: str, d: pd.DataFrame | None, columns: 
     return files
 
 
+def form_master(master: Path | None) -> pd.DataFrame | None:
+    """PokéAPI typing and base stats per form, keyed by poke_id (the /pokemon id, >= 10001 for alternate forms):
+    poke_id, type_1, type_2 (None for a monotype or a form without type rows), six base stats.
+    None when `master` is None or lacks one of MASTER_FILES. Mechanics only (BR-16): nothing from Showdown."""
+    if master is None or not all((Path(master) / f).exists() for f in MASTER_FILES):
+        return None
+    frames = {}
+    for name in MASTER_FILES:
+        df = pd.read_csv(Path(master) / name)        # small master tables (~1.3k rows), not event data
+        check_columns(df.columns, name)
+        frames[name] = df
+    stats = frames["stats_raw.csv"][["poke_id", *STAT_COLUMNS]].astype("int64")
+    if stats["poke_id"].duplicated().any():
+        raise ExportError(f"stats_raw.csv repeats poke_id {stats.loc[stats['poke_id'].duplicated(), 'poke_id'].tolist()[:5]}")
+    names = dict(zip(frames["data_type.csv"]["type_id"].astype("int64"), frames["data_type.csv"]["type"].astype(str)))
+    types = frames["pokemon_type_raw.csv"].astype({"pokemon_id": "int64", "type_id": "int64", "slot": "int64"})
+    types = types.assign(type=types["type_id"].map(names))
+    if types["type"].isna().any():
+        raise ExportError(f"pokemon_type_raw.csv has type_id(s) missing from data_type.csv: "
+                          f"{sorted(types.loc[types['type'].isna(), 'type_id'].unique().tolist())}")
+    for slot in (1, 2):
+        s = types[types["slot"] == slot]
+        if s["pokemon_id"].duplicated().any():
+            raise ExportError(f"pokemon_type_raw.csv has two slot-{slot} types for one pokemon_id")
+        stats = stats.merge(s[["pokemon_id", "type"]].rename(columns={"pokemon_id": "poke_id", "type": f"type_{slot}"}),
+                            on="poke_id", how="left")
+    return stats
+
+
+def species_forms(usage: pd.DataFrame, master: pd.DataFrame | None) -> list[dict]:
+    """One record per form exported in team_usage (rows with a poke_id), with its own typing and base stats joined on
+    poke_id; unobserved / species_only rows are not forms and get nothing (BR-05). A form missing from the master data
+    keeps null typing / stats: nothing is borrowed from another form of the species."""
+    forms = usage.loc[usage["poke_id"] != NO_FORM, ["species", "form", "poke_id"]].drop_duplicates()
+    if forms["poke_id"].duplicated().any():
+        raise ExportError(f"a poke_id carries two forms: {forms[forms['poke_id'].duplicated(keep=False)].values.tolist()[:5]}")
+    if master is not None:
+        forms = forms.merge(master, on="poke_id", how="left")
+    records = []
+    for r in forms.sort_values(["species", "form"]).to_dict("records"):
+        rec = {"species": str(r["species"]), "form": str(r["form"]), "poke_id": int(r["poke_id"])}
+        for c in FORM_COLUMNS[3:]:
+            v = r.get(c)
+            rec[c] = None if v is None or pd.isna(v) else (str(v) if c.startswith("type") else int(v))
+        records.append(rec)
+    if any(list(rec) != FORM_COLUMNS for rec in records):
+        raise ExportError("species_forms keys are not the allow-list")
+    return records
+
+
 def _label(species: str, poke_id: int, form: str, form_basis: str) -> str:
     """Display name of a row: the form ('calyrex-shadow' -> 'Calyrex-Shadow'), or the species with why it has no form.
     A form revealed in battle is a different population from the same form named at team preview (BR-06), e.g.
@@ -404,13 +458,16 @@ def _band_key(band: str) -> int:
     return BAND_ORDER.index(band) if band in BAND_ORDER else len(BAND_ORDER)
 
 
-def export(agg: Path, out: Path, batch_size: int = 500_000, snapshot_date: str | None = None) -> dict:
-    """Write the web data files and manifest.json under `out`; returns the manifest."""
+def export(agg: Path, out: Path, batch_size: int = 500_000, snapshot_date: str | None = None,
+           master: Path | None = None) -> dict:
+    """Write the web data files and manifest.json under `out`; returns the manifest. `master` = directory of the
+    PokéAPI master CSVs (MASTER_FILES); without it the forms in species_forms.json have null typing and stats."""
     agg, out = Path(agg), Path(out)
     usage = team_usage(agg, batch_size)          # validates the inputs before anything is written or removed
     totals = _totals(agg)
     partners, matchups = partner_lists(agg, batch_size), matchup_lists(agg, batch_size)
     trend, tera = trend_series(agg, batch_size), tera_tables(agg, batch_size)
+    mapping = species_forms(usage, form_master(master))
     for dataset in ("team_usage", "partners", "matchups", "trend", "tera"):   # files of an earlier export would be deployed but unlisted
         for old in (out / dataset).glob("*.json"):
             old.unlink()
@@ -425,8 +482,6 @@ def export(agg: Path, out: Path, batch_size: int = 500_000, snapshot_date: str |
         size = _write_json(out / rel, payload)
         files.append({"regulation": reg, "rating_band": band, "path": rel, "rows": len(payload["rows"]), "bytes": size})
     files.sort(key=lambda f: (f["regulation"], _band_key(f["rating_band"])))
-    forms = usage.loc[usage["poke_id"] != NO_FORM, ["species", "form"]].drop_duplicates().sort_values(["species", "form"])
-    mapping = [{"species": str(r.species), "form": str(r.form)} for r in forms.itertuples(index=False)]
     forms_file = {"path": "species_forms.json", "rows": len(mapping), "bytes": _write_json(out / "species_forms.json", mapping)}
     baselines = {(str(r), str(b)): float(v) for (r, b), v in
                  usage.groupby(["regulation", "rating_band"])["baseline_win_rate"].first().items()}
@@ -467,11 +522,13 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--agg", type=Path, default=Path("data/aggregates"))
     ap.add_argument("--out", type=Path, default=Path("web/public/data"))
+    ap.add_argument("--master", type=Path, default=Path("data/raw"),
+                    help="directory of the PokéAPI master CSVs: " + ", ".join(MASTER_FILES))
     ap.add_argument("--snapshot-date", default=None, type=lambda v: dt.date.fromisoformat(v).isoformat(),
                     help="ISO date (YYYY-MM-DD) of the data snapshot (default: aggregate file date)")
     args = ap.parse_args(argv)
 
-    m = export(args.agg, args.out, snapshot_date=args.snapshot_date)
+    m = export(args.agg, args.out, snapshot_date=args.snapshot_date, master=args.master)
     files = m["datasets"]["team_usage"]
     on_disk = {f["path"]: (args.out / f["path"]).stat().st_size for f in files}
     print(f"schema v{m['schema_version']}, snapshot {m['snapshot_date']}, n >= {m['min_n']}")
@@ -491,6 +548,13 @@ def main(argv=None) -> int:
     sf = m["datasets"]["species_forms"]
     print("rows per form_basis: " + ", ".join(f"{k} {v:,}" for k, v in sorted(basis.items())))
     print(f"species_forms.json: {sf['rows']} forms, {sf['bytes']:,} B")
+    forms = json.loads((args.out / sf["path"]).read_text(encoding="utf-8"))
+    no_type = [f["form"] for f in forms if f["type_1"] is None]
+    no_stats = [f["form"] for f in forms if f["hp"] is None]
+    print(f"  checks: every form has a poke_id: {all(f['poke_id'] is not None for f in forms)}; "
+          f"forms without typing: {len(no_type)} {no_type[:10]}; without base stats: {len(no_stats)} {no_stats[:10]}; "
+          f"alternate forms (poke_id >= 10001): {sum(f['poke_id'] >= 10001 for f in forms)}"
+          + ("" if form_master(args.master) is not None else f" (master CSVs not found in {args.master})"))
     for ds, key, job in (("partners", "partners", "partner_stats"), ("matchups", "opponents", "matchup_stats"),
                          ("trend", "points", "usage_trend"), ("tera", None, "tera_stats")):
         fs = m["datasets"][ds]

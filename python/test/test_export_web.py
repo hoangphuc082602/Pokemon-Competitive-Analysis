@@ -132,7 +132,7 @@ def test_exported_files_hold_only_allow_listed_keys(exported):
 
 def test_manifest_counts_and_sizes_match_the_files(exported):
     out, manifest = exported
-    assert manifest["schema_version"] == 5 and manifest["min_n"] == 100
+    assert manifest["schema_version"] == 6 and manifest["min_n"] == 100
     on_disk = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     assert on_disk == manifest
     for f in manifest["datasets"]["team_usage"]:
@@ -166,14 +166,72 @@ def test_files_of_an_earlier_export_are_removed(tmp_path):
            sorted(f["path"].split("/")[1] for f in manifest["datasets"]["team_usage"])
 
 
-def test_species_form_mapping_lists_each_exported_form_once(exported):
-    out, manifest = exported
+def _write_master(tmp_path, types=None):
+    """Synthetic PokéAPI master CSVs as written by crawl_data (data_pokemon_stats, data_pokemon, data_type).
+    Two forms per species with different typing and stats, so a join on species_id instead of poke_id is caught."""
+    master = tmp_path / "raw"
+    master.mkdir()
+    stats = [  # poke_id, pokemon, species_id, hp, atk, def, spatk, spdef, spe
+        (727, "incineroar", 727, 95, 115, 90, 80, 90, 60),
+        (892, "urshifu-single-strike", 892, 100, 130, 100, 63, 60, 97),
+        (10191, "urshifu-rapid-strike", 892, 100, 130, 100, 63, 60, 97),
+        (898, "calyrex", 898, 100, 80, 80, 80, 80, 80),
+        (10193, "calyrex-shadow", 898, 100, 85, 80, 165, 100, 150),
+        (10194, "calyrex-ice", 898, 100, 165, 150, 85, 130, 50),
+    ]
+    pd.DataFrame(stats, columns=["poke_id", "pokemon", "species_id", "hp", "atk", "def", "spatk", "spdef", "spe"]) \
+        .to_csv(master / "stats_raw.csv", index=False)
+    if types is None:
+        types = [(727, 10, 1), (727, 17, 2), (892, 2, 1), (892, 17, 2), (10191, 2, 1), (10191, 11, 2),
+                 (898, 14, 1), (898, 12, 2), (10193, 14, 1), (10193, 8, 2), (10194, 14, 1), (10194, 15, 2)]
+    pd.DataFrame(types, columns=["pokemon_id", "type_id", "slot"]).to_csv(master / "pokemon_type_raw.csv", index=False)
+    pd.DataFrame({"type_id": [2, 8, 10, 11, 12, 14, 15, 17],
+                  "type": ["fighting", "ghost", "fire", "water", "grass", "psychic", "ice", "dark"]}) \
+        .to_csv(master / "data_type.csv", index=False)
+    return master
+
+
+def _forms(out, manifest):
     entry = manifest["datasets"]["species_forms"]
-    data = json.loads((out / entry["path"]).read_text(encoding="utf-8"))
-    assert data == [{"species": "Calyrex", "form": "calyrex-shadow"},          # Calyrex-Ice is in no exported file
-                    {"species": "Incineroar", "form": "incineroar"},
-                    {"species": "Urshifu", "form": "urshifu-rapid-strike"}]   # in two bands, listed once
+    return entry, json.loads((out / entry["path"]).read_text(encoding="utf-8"))
+
+
+def test_species_form_mapping_lists_each_exported_form_once_with_its_own_typing_and_stats(tmp_path):
+    out = tmp_path / "web"
+    manifest = export(_write(tmp_path), out, master=_write_master(tmp_path))
+    entry, data = _forms(out, manifest)
+    assert data == [                                         # Calyrex-Ice is in no exported file; masked rows are not forms
+        {"species": "Calyrex", "form": "calyrex-shadow", "poke_id": 10193, "type_1": "psychic", "type_2": "ghost",
+         "hp": 100, "atk": 85, "def": 80, "spatk": 165, "spdef": 100, "spe": 150},
+        {"species": "Incineroar", "form": "incineroar", "poke_id": 727, "type_1": "fire", "type_2": "dark",
+         "hp": 95, "atk": 115, "def": 90, "spatk": 80, "spdef": 90, "spe": 60},
+        {"species": "Urshifu", "form": "urshifu-rapid-strike", "poke_id": 10191, "type_1": "fighting",  # in two bands,
+         "type_2": "water", "hp": 100, "atk": 130, "def": 100, "spatk": 63, "spdef": 60, "spe": 97}]   # listed once
     assert (entry["rows"], entry["bytes"]) == (3, (out / entry["path"]).stat().st_size)
+
+
+def test_a_form_missing_from_the_type_master_gets_no_guessed_typing(tmp_path):
+    """BR-05: nothing is borrowed from another form of the species; a monotype form has type_2 null."""
+    types = [(10191, 2, 1), (892, 2, 1), (892, 17, 2), (10193, 14, 1)]   # Incineroar has no type row
+    out = tmp_path / "web"
+    _, data = _forms(out, export(_write(tmp_path), out, master=_write_master(tmp_path, types)))
+    by_form = {r["form"]: r for r in data}
+    assert (by_form["incineroar"]["type_1"], by_form["incineroar"]["type_2"], by_form["incineroar"]["hp"]) == (None, None, 95)
+    assert (by_form["urshifu-rapid-strike"]["type_1"], by_form["urshifu-rapid-strike"]["type_2"]) == ("fighting", None)
+    assert (by_form["calyrex-shadow"]["type_1"], by_form["calyrex-shadow"]["type_2"]) == ("psychic", None)
+
+
+def test_without_master_data_the_forms_have_null_typing_and_stats(exported):
+    _, data = _forms(*exported)
+    assert [r["form"] for r in data] == ["calyrex-shadow", "incineroar", "urshifu-rapid-strike"]
+    assert all(r[c] is None for r in data for c in ("type_1", "type_2", "hp", "atk", "def", "spatk", "spdef", "spe"))
+
+
+def test_a_forbidden_column_in_the_master_data_makes_the_export_fail(tmp_path):
+    master = _write_master(tmp_path)
+    pd.read_csv(master / "stats_raw.csv").assign(username="x").to_csv(master / "stats_raw.csv", index=False)
+    with pytest.raises(ExportError, match="forbidden"):
+        export(_write(tmp_path), tmp_path / "web", master=master)
 
 
 def test_a_form_both_listed_and_revealed_in_battle_keeps_two_distinguishable_rows(tmp_path):
@@ -566,7 +624,7 @@ def test_missing_tera_and_trend_tables_remove_stale_files(tmp_path):
         (out / d).mkdir(parents=True)
         (out / d / f"{REG}__all.json").write_text("{}", encoding="utf-8")
     manifest = export(_write(tmp_path), out)
-    assert manifest["datasets"]["tera"] == [] and manifest["schema_version"] == 5
+    assert manifest["datasets"]["tera"] == [] and manifest["schema_version"] == 6
     assert not any((out / d / f"{REG}__all.json").exists() for d in ("tera", "trend"))
 
 
