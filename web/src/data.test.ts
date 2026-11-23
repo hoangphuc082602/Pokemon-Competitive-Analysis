@@ -3,11 +3,15 @@ import {
   DataError,
   SCHEMA_VERSION,
   filterRows,
+  chartPoints,
   formNote,
   loadPairFile,
   loadTeamUsage,
+  loadTeraFile,
+  loadTrendFile,
   parseManifest,
   speciesEntry,
+  teraEntry,
   readFilters,
   selectFile,
   writeFilters,
@@ -37,6 +41,8 @@ const manifest = (over: Record<string, unknown> = {}) => ({
       { regulation: "regA", rating_band: "1500_plus", path: "partners/regA__1500_plus.json", rows: 1, bytes: 10 },
     ],
     matchups: [{ regulation: "regA", rating_band: "1500_plus", path: "matchups/regA__1500_plus.json", rows: 1, bytes: 10 }],
+    trend: [{ regulation: "regA", rating_band: "1500_plus", path: "trend/regA__1500_plus.json", rows: 1, bytes: 10 }],
+    tera: [{ regulation: "regA", rating_band: "1500_plus", path: "tera/regA__1500_plus.json", rows: 1, bytes: 10 }],
   },
   ...over,
 });
@@ -182,6 +188,75 @@ describe("partners and matchups", () => {
 
   it("rejects a file of another band", async () => {
     await expect(loadPairFile(m, "partners", "regA", "all", async () => file, "")).rejects
+      .toThrow(expect.objectContaining({ code: "mismatch" }));
+  });
+});
+
+describe("monthly trend", () => {
+  const m = parseManifest(manifest()) as Manifest;
+  const point = (month: string, usage_share: number) =>
+    ({ month, n: 150, usage_share, win_rate: 0.5, win_ci_low: 0.4, win_ci_high: 0.6 });
+  const file = {
+    regulation: "regA", rating_band: "1500_plus", min_n: 100,
+    months: [
+      { month: "2024-01", player_battles: 1000, tail: false },
+      { month: "2024-02", player_battles: 900, tail: false },
+      { month: "2024-03", player_battles: 800, tail: false },
+      { month: "2024-04", player_battles: 30, tail: true },
+    ],
+    rows: [{ species_id: 727, species: "Incineroar",
+             points: [point("2024-01", 0.4), point("2024-03", 0.3), point("2024-04", 0.1)] }],   // 2024-02: n < 100
+  };
+
+  it("requires the trend and tera datasets of a v4 manifest", () => {
+    const { trend: _t, ...rest } = manifest().datasets;
+    expect(() => parseManifest(manifest({ datasets: rest }))).toThrow(expect.objectContaining({ code: "invalid" }));
+    const { tera: _x, ...rest2 } = manifest().datasets;
+    expect(() => parseManifest(manifest({ datasets: rest2 }))).toThrow(expect.objectContaining({ code: "invalid" }));
+  });
+
+  it("loads exactly the selected regulation x band file and never another band", async () => {
+    const urls: string[] = [];
+    await loadTrendFile(m, "regA", "1500_plus", async (u) => { urls.push(u); return file; }, "d/");
+    expect(urls).toEqual(["d/trend/regA__1500_plus.json"]);
+    await expect(loadTrendFile(m, "regA", "all", async () => file, "")).rejects
+      .toThrow(expect.objectContaining({ code: "not-found" }));
+  });
+
+  it("charts the non-tail months, leaves gaps for hidden points and discloses the tail months", () => {
+    const c = chartPoints(file, 727);
+    expect(c.months).toEqual(["2024-01", "2024-02", "2024-03"]);
+    expect(c.points.map((p) => [p.month, p.usage_share])).toEqual([["2024-01", 0.4], ["2024-03", 0.3]]);
+    expect(c.tailMonths).toEqual(["2024-04"]);
+    expect(c.hiddenTailPoints).toBe(1);
+  });
+
+  it("gives an empty series for a species without points", () => {
+    const c = chartPoints(file, 1);
+    expect(c.points).toEqual([]);
+    expect(c.tailMonths).toEqual(["2024-04"]);
+    expect(c.hiddenTailPoints).toBe(0);
+  });
+});
+
+describe("tera", () => {
+  const m = parseManifest(manifest()) as Manifest;
+  const file = { regulation: "regA", rating_band: "1500_plus", min_n: 100,
+                 rows: [{ species_id: 727, species: "Incineroar", n: 400, tera_events: 150, tera_rate: 0.375,
+                          tera_rate_ci_low: 0.33, tera_rate_ci_high: 0.42, win_rate_tera: 0.6, win_rate_no_tera: null,
+                          types: [{ tera_type: "Ghost", events: 120, type_share: 0.8 }] }] };
+
+  it("loads the band's file and finds a species", async () => {
+    const urls: string[] = [];
+    const data = await loadTeraFile(m, "regA", "1500_plus", async (u) => { urls.push(u); return file; }, "d/");
+    expect(urls).toEqual(["d/tera/regA__1500_plus.json"]);
+    expect(teraEntry(data, 727)?.types.map((t) => t.tera_type)).toEqual(["Ghost"]);
+    expect(teraEntry(data, 1)).toBeUndefined();
+  });
+
+  it("rejects a file of another band", async () => {
+    const other = { ...file, rating_band: "all" };
+    await expect(loadTeraFile(m, "regA", "1500_plus", async () => other, "")).rejects
       .toThrow(expect.objectContaining({ code: "mismatch" }));
   });
 });

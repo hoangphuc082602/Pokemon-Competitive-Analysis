@@ -55,12 +55,12 @@
           (n counts only teams where that form was sent out; a separate row from teams that named it at team preview) or “never sent out” (form unknown, not guessed); forms
           missing from the master data (e.g. Arceus type forms) are tagged “species level”. “vs band” compares with the selected band's
           own baseline, not with 50%. Win rates describe teams that brought the form — correlation, not causation.
-          Click a Pokémon to see its partners and matchups.
+          Click a Pokémon to see its partners, matchups, monthly usage and Tera.
         </p>
       </section>
 
       <section id="detail" aria-labelledby="detail-title">
-        <h2 id="detail-title">Partners and matchups</h2>
+        <h2 id="detail-title">Species detail: partners, matchups, monthly usage, Tera</h2>
         <form class="filters" onsubmit="return false">
           <label>Species <select id="species"></select></label>
         </form>
@@ -116,6 +116,54 @@
             furthest below and above that expectation (by z), lowest first. <strong>z is nominal</strong>: games of a
             best-of-three and one player's battles are not independent and many opponents are compared at once, so
             |z| &lt; 4 is treated as noise and left uncoloured. In a rating band, the band is the selected species' player's.
+          </p>
+
+          <h3>Monthly usage</h3>
+          <p id="trend-context" class="context"></p>
+          <div id="trend-chart" class="chart"></div>
+          <p id="trend-tail" class="note"></p>
+          <details class="note">
+            <summary>Table view</summary>
+            <div class="table-scroll">
+              <table id="trend-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Month</th>
+                    <th scope="col" class="num" title="Teams that brought the species that month">n teams</th>
+                    <th scope="col" class="num" title="Share of that month's player-battles in this regulation and band">Usage</th>
+                    <th scope="col" class="num">Win rate</th>
+                    <th scope="col" class="num" title="95% Wilson interval">95% CI</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </details>
+          <p class="note">
+            Month = the UTC month the replay was <strong>uploaded</strong>, not the day the battle was played. Usage = teams
+            with the species ÷ player-battles of that month, in this rating band only. Months where the species has fewer
+            than 100 teams are gaps, not zeros.
+          </p>
+
+          <h3>Tera</h3>
+          <p id="tera-context" class="context"></p>
+          <div class="table-scroll">
+            <table id="tera">
+              <thead>
+                <tr>
+                  <th scope="col">Tera type</th>
+                  <th scope="col" class="num" title="Times this species Terastallized into this type (once per player-battle)">Tera events</th>
+                  <th scope="col" class="num" title="Share of this species' Tera events">Share</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="note">
+            Tera rate = Tera events ÷ team appearances where the species was sent out. <strong>Win rates with and without
+            Tera are not comparable</strong>: a Pokémon must still be on the field to Terastallize, so the “without Tera”
+            games include those where it fainted early (survivorship bias), and players choose when to Tera. The gap is
+            not the effect of Terastallizing.
           </p>
         </div>
       </section>

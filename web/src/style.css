@@ -59,3 +59,13 @@ h3 { font-size: 1.05rem; margin: 20px 0 8px; }
 td a { color: var(--accent); text-decoration: none; }
 td a:hover { text-decoration: underline; }
 footer { color: var(--muted); font-size: 0.85rem; padding: 24px 16px 40px; }
+.chart { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 8px; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chart .grid { stroke: var(--border); stroke-width: 1; }
+.chart .axis { fill: var(--muted); font-size: 11px; }
+.chart .series { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.chart .hit { fill: transparent; }
+.chart .pt:hover .dot, .chart .pt:focus .dot { r: 6; }
+.chart .pt:focus { outline: none; }
+details.note summary { cursor: pointer; margin: 4px 0; }

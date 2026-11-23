@@ -1,7 +1,7 @@
 // Typed loaders and selectors for the static data written by python/analytics/export_web.py.
 // The browser only displays already-correct rows: one regulation x one rating band at a time, never combined.
 
-export const SCHEMA_VERSION = 3;   // v3: partners + matchups (#13); v2: one row per form (#24); v1 was species level
+export const SCHEMA_VERSION = 4;   // v4: trend + tera (#14); v3: partners + matchups (#13); v2: one row per form (#24); v1 was species level
 
 export interface FileEntry {
   regulation: string;
@@ -31,6 +31,8 @@ export interface Manifest {
     species_forms: { path: string; rows: number; bytes: number };
     partners: FileEntry[];
     matchups: FileEntry[];
+    trend: FileEntry[];
+    tera: FileEntry[];
   };
 }
 
@@ -69,6 +71,57 @@ export interface SpeciesEntry {
 }
 
 export type PairDataset = "partners" | "matchups";
+
+/** An upload month of the regulation x band; tail = below 5% of the busiest month (the format is ending). */
+export interface TrendMonth {
+  month: string;          // YYYY-MM, UTC month of the replay upload
+  player_battles: number;
+  tail: boolean;
+}
+
+export interface TrendPoint {
+  month: string;
+  n: number;              // teams with the species that month (points with n < min_n are not exported)
+  usage_share: number;
+  win_rate: number;
+  win_ci_low: number;
+  win_ci_high: number;
+}
+
+export interface TrendFile {
+  regulation: string;
+  rating_band: string;
+  min_n: number;
+  months: TrendMonth[];
+  rows: { species_id: number; species: string; points: TrendPoint[] }[];
+}
+
+export interface TeraType {
+  tera_type: string;
+  events: number;
+  type_share: number;     // of the species' Tera events
+}
+
+/** Tera of a species. Win rates with and without Tera are not comparable (survivorship); null when n < min_n. */
+export interface TeraRow {
+  species_id: number;
+  species: string;
+  n: number;              // sent-out appearances (denominator of the Tera rate)
+  tera_events: number;
+  tera_rate: number;
+  tera_rate_ci_low: number;
+  tera_rate_ci_high: number;
+  win_rate_tera: number | null;
+  win_rate_no_tera: number | null;
+  types: TeraType[];      // empty when tera_events < min_n
+}
+
+export interface TeraFile {
+  regulation: string;
+  rating_band: string;
+  min_n: number;
+  rows: TeraRow[];
+}
 
 export interface PairFile {
   regulation: string;
@@ -128,7 +181,8 @@ export function parseManifest(json: unknown): Manifest {
   }
   const datasets = json.datasets;
   if (!Array.isArray(json.regulations) || !Array.isArray(json.bands) || !isObject(datasets)
-      || !Array.isArray(datasets.team_usage) || !Array.isArray(datasets.partners) || !Array.isArray(datasets.matchups)) {
+      || !Array.isArray(datasets.team_usage) || !Array.isArray(datasets.partners) || !Array.isArray(datasets.matchups)
+      || !Array.isArray(datasets.trend) || !Array.isArray(datasets.tera)) {
     throw new DataError("invalid", "manifest.json is missing regulations, bands or datasets");
   }
   return json as unknown as Manifest;
@@ -151,9 +205,11 @@ export async function loadTeamUsage(m: Manifest, regulation: string, band: strin
   return data as unknown as TeamUsage;
 }
 
-/** The partners or matchups file of exactly this regulation x band; never another band. */
-export async function loadPairFile(m: Manifest, dataset: PairDataset, regulation: string, band: string,
-                                   fetchJson: FetchJson, base: string): Promise<PairFile> {
+type BandDataset = PairDataset | "trend" | "tera";
+
+/** The file of exactly this regulation x band in a per-band dataset; never another band. */
+async function loadBandFile(m: Manifest, dataset: BandDataset, regulation: string, band: string,
+                            fetchJson: FetchJson, base: string): Promise<Record<string, unknown>> {
   const entry = m.datasets[dataset].find((f) => f.regulation === regulation && f.rating_band === band);
   if (!entry) throw new DataError("not-found", `no ${dataset} for ${regulation} / ${band}`);
   const data = await fetchJson(base + entry.path);
@@ -161,11 +217,53 @@ export async function loadPairFile(m: Manifest, dataset: PairDataset, regulation
   if (data.regulation !== regulation || data.rating_band !== band) {
     throw new DataError("mismatch", `${entry.path} holds ${String(data.regulation)} / ${String(data.rating_band)}`);
   }
-  return data as unknown as PairFile;
+  return data;
+}
+
+/** The partners or matchups file of exactly this regulation x band; never another band. */
+export async function loadPairFile(m: Manifest, dataset: PairDataset, regulation: string, band: string,
+                                   fetchJson: FetchJson, base: string): Promise<PairFile> {
+  return (await loadBandFile(m, dataset, regulation, band, fetchJson, base)) as unknown as PairFile;
+}
+
+export async function loadTrendFile(m: Manifest, regulation: string, band: string, fetchJson: FetchJson,
+                                    base: string): Promise<TrendFile> {
+  const data = await loadBandFile(m, "trend", regulation, band, fetchJson, base);
+  if (!Array.isArray(data.months)) throw new DataError("invalid", `trend file of ${regulation} / ${band} has no months`);
+  return data as unknown as TrendFile;
+}
+
+export async function loadTeraFile(m: Manifest, regulation: string, band: string, fetchJson: FetchJson,
+                                   base: string): Promise<TeraFile> {
+  return (await loadBandFile(m, "tera", regulation, band, fetchJson, base)) as unknown as TeraFile;
 }
 
 export function speciesEntry(file: PairFile, speciesId: number): SpeciesEntry | undefined {
   return file.rows.find((r) => r.species_id === speciesId);
+}
+
+export function teraEntry(file: TeraFile, speciesId: number): TeraRow | undefined {
+  return file.rows.find((r) => r.species_id === speciesId);
+}
+
+export interface ChartSeries {
+  months: string[];           // x axis: every non-tail month of the file, in order (gaps where n < min_n)
+  points: TrendPoint[];       // the species' points in those months
+  tailMonths: string[];       // months left out of the chart, disclosed under it
+  hiddenTailPoints: number;   // points of the species in tail months (exported, not charted)
+}
+
+/** Chart data of one species: tail months are excluded from the chart and listed for disclosure. */
+export function chartPoints(file: TrendFile, speciesId: number): ChartSeries {
+  const months = [...file.months].sort((a, b) => a.month.localeCompare(b.month));
+  const tail = new Set(months.filter((x) => x.tail).map((x) => x.month));
+  const all = file.rows.find((r) => r.species_id === speciesId)?.points ?? [];
+  return {
+    months: months.filter((x) => !x.tail).map((x) => x.month),
+    points: all.filter((p) => !tail.has(p.month)).sort((a, b) => a.month.localeCompare(b.month)),
+    tailMonths: [...tail],
+    hiddenTailPoints: all.filter((p) => tail.has(p.month)).length,
+  };
 }
 
 export function filterRows(rows: UsageRow[], query: string): UsageRow[] {

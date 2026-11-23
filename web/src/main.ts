@@ -1,13 +1,17 @@
 import "./style.css";
 import {
   DataError,
+  chartPoints,
   filterRows,
   formNote,
   loadPairFile,
   loadTeamUsage,
+  loadTeraFile,
+  loadTrendFile,
   parseManifest,
   readFilters,
   speciesEntry,
+  teraEntry,
   writeFilters,
   type Filters,
   type FormBasis,
@@ -17,6 +21,8 @@ import {
   type PairFile,
   type Partner,
   type TeamUsage,
+  type TeraFile,
+  type TrendFile,
   type UsageRow,
 } from "./data";
 
@@ -41,6 +47,12 @@ const detailContext = $<HTMLParagraphElement>("detail-context");
 const detailBody = $<HTMLDivElement>("detail-body");
 const partnerBody = document.querySelector<HTMLTableSectionElement>("#partners tbody")!;
 const matchupBody = document.querySelector<HTMLTableSectionElement>("#matchups tbody")!;
+const trendContext = $<HTMLParagraphElement>("trend-context");
+const trendChart = $<HTMLDivElement>("trend-chart");
+const trendTail = $<HTMLParagraphElement>("trend-tail");
+const trendBody = document.querySelector<HTMLTableSectionElement>("#trend-table tbody")!;
+const teraContext = $<HTMLParagraphElement>("tera-context");
+const teraBody = document.querySelector<HTMLTableSectionElement>("#tera tbody")!;
 
 const fmt = new Intl.NumberFormat("en");
 const pct = (v: number, d = 1) => `${(100 * v).toFixed(d)}%`;
@@ -177,6 +189,115 @@ function renderMatchups(list: Opponent[] | undefined, minN: number) {
   }));
 }
 
+const SVG = "http://www.w3.org/2000/svg";
+function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>): SVGElementTagNameMap[K] {
+  const el = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+  return el;
+}
+
+/** Line chart of monthly usage share: non-tail months on x, gaps where n < min_n, native tooltip per point. */
+function drawTrend(months: string[], points: TrendFile["rows"][number]["points"]) {
+  const W = 640, H = 220, L = 48, R = 16, T = 12, B = 28;
+  const top = Math.max(...points.map((p) => p.usage_share), 0.01);
+  const step = top > 0.4 ? 0.1 : top > 0.2 ? 0.05 : top > 0.08 ? 0.02 : 0.01;
+  const yMax = Math.ceil((top * 1.05) / step) * step;
+  const x = (i: number) => L + (months.length > 1 ? (i * (W - L - R)) / (months.length - 1) : (W - L - R) / 2);
+  const y = (v: number) => T + (1 - v / yMax) * (H - T - B);
+  const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
+    "aria-label": "Monthly usage share; values in the table view below" });
+  for (let v = 0; v <= yMax + 1e-9; v += step) {
+    root.append(svg("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: "grid" }));
+    const t = svg("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end", class: "axis" });
+    t.textContent = pct(v, 0);
+    root.append(t);
+  }
+  const every = Math.ceil(months.length / 8);
+  months.forEach((m, i) => {
+    if (i % every && i !== months.length - 1) return;
+    const t = svg("text", { x: x(i), y: H - 8, "text-anchor": "middle", class: "axis" });
+    t.textContent = m;
+    root.append(t);
+  });
+  const at = new Map(points.map((p) => [p.month, p]));
+  let run: string[] = [];
+  const flush = () => {
+    if (run.length > 1) root.append(svg("polyline", { points: run.join(" "), class: "series" }));
+    run = [];
+  };
+  months.forEach((m, i) => {
+    const p = at.get(m);
+    if (p) run.push(`${x(i)},${y(p.usage_share)}`);
+    else flush();
+  });
+  flush();
+  months.forEach((m, i) => {
+    const p = at.get(m);
+    if (!p) return;
+    const g = svg("g", { class: "pt", tabindex: 0 });
+    const title = svg("title", {});
+    title.textContent = `${m}: ${pct(p.usage_share)} of teams (n ${fmt.format(p.n)}); win rate ${pct(p.win_rate)} ` +
+      `(95% CI ${pct(p.win_ci_low)}–${pct(p.win_ci_high)})`;
+    g.append(title, svg("circle", { cx: x(i), cy: y(p.usage_share), r: 12, class: "hit" }),
+      svg("circle", { cx: x(i), cy: y(p.usage_share), r: 4, class: "dot" }));
+    root.append(g);
+  });
+  trendChart.replaceChildren(root);
+}
+
+function renderTrend(file: TrendFile | null, id: number) {
+  trendChart.replaceChildren();
+  trendTail.textContent = "";
+  if (!file) {
+    trendContext.textContent = "Monthly usage not exported for this band.";
+    trendBody.replaceChildren();
+    return;
+  }
+  const c = chartPoints(file, id);
+  trendContext.textContent = c.points.length
+    ? `Share of teams per upload month, rating band “${bandName(file.rating_band)}”; ${c.points.length} of ${c.months.length} months with n ≥ ${file.min_n} teams.`
+    : `No month reaches n ≥ ${file.min_n} teams for this species in this band.`;
+  if (c.points.length) drawTrend(c.months, c.points);
+  if (c.tailMonths.length) {
+    trendTail.textContent = `Not charted: ${c.tailMonths.join(", ")} — tail month(s) with fewer than 5% of the busiest ` +
+      `month's battles (the format is ending; a different, tiny population)` +
+      (c.hiddenTailPoints ? `; ${c.hiddenTailPoints} value(s) of this species there are in the table view.` : ".");
+  }
+  const tail = new Set(c.tailMonths);
+  const rows = (file.rows.find((r) => r.species_id === id)?.points ?? []).slice().sort((a, b) => a.month.localeCompare(b.month));
+  trendBody.replaceChildren(...rows.map((p) => {
+    const tr = document.createElement("tr");
+    tr.append(cell(tail.has(p.month) ? `${p.month} (tail)` : p.month, tail.has(p.month) ? "muted" : undefined),
+      cell(fmt.format(p.n), "num"), cell(pct(p.usage_share), "num"), cell(pct(p.win_rate), "num"),
+      cell(`${pct(p.win_ci_low)}–${pct(p.win_ci_high)}`, "num muted"));
+    return tr;
+  }));
+  if (!rows.length) emptyRow(trendBody, `No month with n ≥ ${file.min_n} teams.`, 5);
+}
+
+function renderTera(file: TeraFile | null, id: number) {
+  if (!file) {
+    teraContext.textContent = "Tera not exported for this band.";
+    return emptyRow(teraBody, "No data.", 3);
+  }
+  const t = teraEntry(file, id);
+  if (!t) {
+    teraContext.textContent = `Fewer than ${file.min_n} sent-out appearances in this band: Tera hidden.`;
+    return emptyRow(teraBody, "No data.", 3);
+  }
+  const wr = (v: number | null) => (v === null ? `n < ${file.min_n}, hidden` : pct(v));
+  teraContext.textContent =
+    `Terastallized in ${pct(t.tera_rate)} of ${fmt.format(t.n)} sent-out appearances ` +
+    `(95% CI ${pct(t.tera_rate_ci_low)}–${pct(t.tera_rate_ci_high)}; ${fmt.format(t.tera_events)} Tera events). ` +
+    `Win rate with Tera ${wr(t.win_rate_tera)}, without ${wr(t.win_rate_no_tera)} — not comparable, see note.`;
+  if (!t.types.length) return emptyRow(teraBody, `Type split hidden: fewer than ${file.min_n} Tera events.`, 3);
+  teraBody.replaceChildren(...t.types.map((x) => {
+    const tr = document.createElement("tr");
+    tr.append(cell(x.tera_type), cell(fmt.format(x.events), "num"), cell(pct(x.type_share), "num"));
+    return tr;
+  }));
+}
+
 async function start() {
   let manifest: Manifest;
   try {
@@ -194,28 +315,32 @@ async function start() {
 
   filters = readFilters(location.search, manifest);
   let current: TeamUsage | null = null;
-  let pairs: { partners: PairFile | null; matchups: PairFile | null } = { partners: null, matchups: null };
+  type Detail = { partners: PairFile | null; matchups: PairFile | null; trend: TrendFile | null; tera: TeraFile | null };
+  const noDetail: Detail = { partners: null, matchups: null, trend: null, tera: null };
+  let pairs: Detail = noDetail;
   let token = 0;
 
   const sync = () => history.replaceState(null, "", writeFilters(filters) + location.hash);
-  const tryLoad = (ds: PairDataset) =>
-    loadPairFile(manifest, ds, filters.regulation, filters.band, fetchJson, BASE).catch((e: unknown) => {
-      if (e instanceof DataError && e.code === "not-found") return null;   // not exported for this band
-      throw e;
-    });
+  const orNull = <T,>(p: Promise<T>) => p.catch((e: unknown) => {
+    if (e instanceof DataError && e.code === "not-found") return null;   // not exported for this band
+    throw e;
+  });
+  const tryLoad = (ds: PairDataset) => orNull(loadPairFile(manifest, ds, filters.regulation, filters.band, fetchJson, BASE));
 
   function renderDetail() {
     const seen = new Map<number, string>();
-    for (const f of [pairs.partners, pairs.matchups]) for (const r of f?.rows ?? []) seen.set(r.species_id, r.species);
+    for (const f of [pairs.partners, pairs.matchups, pairs.trend, pairs.tera]) {
+      for (const r of f?.rows ?? []) seen.set(r.species_id, r.species);
+    }
     const list = [...seen].sort((a, b) => a[1].localeCompare(b[1]));
     const id = filters.species;
     const name = id === null ? undefined : seen.get(id) ?? current?.rows.find((r) => r.species_id === id)?.species;
     speciesSel.replaceChildren(new Option("Choose a species…", ""),
       ...list.map(([sid, sname]) => new Option(sname, String(sid), false, sid === id)));
-    if (id !== null && !seen.has(id)) speciesSel.add(new Option(`${name ?? `#${id}`} (no pair data)`, String(id), false, true));
-    if (!pairs.partners && !pairs.matchups) {
+    if (id !== null && !seen.has(id)) speciesSel.add(new Option(`${name ?? `#${id}`} (no data)`, String(id), false, true));
+    if (!pairs.partners && !pairs.matchups && !pairs.trend && !pairs.tera) {
       detailBody.hidden = true;
-      detailContext.textContent = `No partner or matchup data exported for ${filters.regulation} / ${bandName(filters.band)}.`;
+      detailContext.textContent = `No species detail exported for ${filters.regulation} / ${bandName(filters.band)}.`;
       return;
     }
     if (id === null) {
@@ -233,6 +358,8 @@ async function start() {
     else emptyRow(partnerBody, "Partners not exported for this band.", 7);
     if (pairs.matchups) renderMatchups(m?.opponents, pairs.matchups.min_n);
     else emptyRow(matchupBody, "Matchups not exported for this band.", 7);
+    renderTrend(pairs.trend, id);
+    renderTera(pairs.tera, id);
   }
 
   selectSpecies = (id: number) => {
@@ -252,8 +379,10 @@ async function start() {
     const mine = ++token;
     context.textContent = "Loading…";
     detailContext.textContent = "Loading…";
-    const pairLoad = Promise.all([tryLoad("partners"), tryLoad("matchups")]);
-    pairs = { partners: null, matchups: null };
+    const pairLoad = Promise.all([tryLoad("partners"), tryLoad("matchups"),
+      orNull(loadTrendFile(manifest, filters.regulation, filters.band, fetchJson, BASE)),
+      orNull(loadTeraFile(manifest, filters.regulation, filters.band, fetchJson, BASE))]);
+    pairs = noDetail;
     try {
       const data = await loadTeamUsage(manifest, filters.regulation, filters.band, fetchJson, BASE);
       if (mine !== token) return;
@@ -267,14 +396,14 @@ async function start() {
       context.textContent = `Could not load data: ${e instanceof Error ? e.message : String(e)}`;
     }
     try {   // a broken partners / matchups file must not blank the usage table
-      const [partners, matchups] = await pairLoad;
+      const [partners, matchups, trend, tera] = await pairLoad;
       if (mine !== token) return;
-      pairs = { partners, matchups };
+      pairs = { partners, matchups, trend, tera };
       renderDetail();
     } catch (e) {
       if (mine !== token) return;
       detailBody.hidden = true;
-      detailContext.textContent = `Could not load partners / matchups: ${e instanceof Error ? e.message : String(e)}`;
+      detailContext.textContent = `Could not load species detail: ${e instanceof Error ? e.message : String(e)}`;
     }
   }
 
