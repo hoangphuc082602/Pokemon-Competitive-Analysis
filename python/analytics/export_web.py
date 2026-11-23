@@ -222,6 +222,8 @@ def trend_series(agg: Path, batch_size: int = 500_000) -> tuple[pd.DataFrame, pd
                                                                "species": str})
         month_parts.append(df[["regulation", "rating_band", "month", "player_battles", "tail"]].drop_duplicates())
         point_parts.append(df[pd.to_numeric(df["appearances"]) >= MIN_N])
+    if not month_parts:                                   # table built but empty
+        return None
     months = pd.concat(month_parts, ignore_index=True).drop_duplicates(["regulation", "rating_band", "month"])
     months = months.astype({"player_battles": "int64"}).assign(tail=months["tail"].astype(str).str.lower() == "true")
     points = pd.concat(point_parts, ignore_index=True).rename(columns={"appearances": "n"})
@@ -267,13 +269,16 @@ def tera_tables(agg: Path, batch_size: int = 500_000) -> tuple[pd.DataFrame, pd.
     if batches is None:
         return None
     parts = [df[pd.to_numeric(df["sent_out"]) >= MIN_N] for df in batches]
+    if not parts:                                         # table built but empty
+        return None
     s = pd.concat(parts, ignore_index=True).astype({"regulation": str, "rating_band": str, "species": str,
                                                     "species_id": "int64", "sent_out": "int64", "tera_events": "int64"})
     s["win_rate_tera"] = s["win_rate_tera"].astype(float).where(s["tera_events"] >= MIN_N)
     s["win_rate_no_tera"] = s["win_rate_no_tera"].astype(float).where(s["sent_out"] - s["tera_events"] >= MIN_N)
     keys = ["regulation", "rating_band", "species_id"]
     t_batches = _batches(agg, "pokemon_tera_types", TERA_TYPES_IN, batch_size)
-    t = (pd.concat(list(t_batches), ignore_index=True) if t_batches is not None else pd.DataFrame(columns=TERA_TYPES_IN))
+    t_parts = list(t_batches) if t_batches is not None else []
+    t = pd.concat(t_parts, ignore_index=True) if t_parts else pd.DataFrame(columns=TERA_TYPES_IN)
     t = t.astype({"regulation": str, "rating_band": str, "species_id": "int64", "tera_type": str, "events": "int64"})
     t = t.merge(s.loc[s["tera_events"] >= MIN_N, keys], on=keys)
     return (s.sort_values(["regulation", "rating_band", "species"]).reset_index(drop=True),

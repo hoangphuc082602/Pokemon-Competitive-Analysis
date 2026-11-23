@@ -532,3 +532,19 @@ def test_missing_tera_and_trend_tables_remove_stale_files(tmp_path):
     manifest = export(_write(tmp_path), out)
     assert manifest["datasets"]["tera"] == [] and manifest["schema_version"] == 4
     assert not any((out / d / f"{REG}__all.json").exists() for d in ("tera", "trend"))
+
+
+def test_empty_trend_and_tera_tables_give_empty_datasets(tmp_path):
+    agg = _write_tera(_write_monthly(_write(tmp_path)))
+    for t in ("pokemon_usage_monthly", "pokemon_tera_summary", "pokemon_tera_types"):
+        df = pd.read_parquet(agg / f"{t}.parquet")
+        df.iloc[:0].to_parquet(agg / f"{t}.parquet", index=False)
+    datasets = export(agg, tmp_path / "web")["datasets"]
+    assert (datasets["trend"], datasets["tera"]) == ([], [])
+
+
+def test_an_empty_tera_types_table_gives_species_without_a_type_split(tmp_path):
+    agg = _write_tera(_write(tmp_path))
+    pd.read_parquet(agg / "pokemon_tera_types.parquet").iloc[:0].to_parquet(agg / "pokemon_tera_types.parquet", index=False)
+    out = tmp_path / "web"
+    assert _tera(out, export(agg, out), "all")["Incineroar"]["types"] == []

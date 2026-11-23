@@ -255,7 +255,7 @@ function renderTrend(file: TrendFile | null, id: number) {
   }
   const c = chartPoints(file, id);
   trendContext.textContent = c.points.length
-    ? `Share of teams per upload month, rating band “${bandName(file.rating_band)}”; ${c.points.length} of ${c.months.length} months with n ≥ ${file.min_n} teams.`
+    ? `Share of teams per upload month, completed ${file.regulation} battles, rating band “${bandName(file.rating_band)}”; ${c.points.length} of ${c.months.length} months with n ≥ ${file.min_n} teams.`
     : `No month reaches n ≥ ${file.min_n} teams for this species in this band.`;
   if (c.points.length) drawTrend(c.months, c.points);
   if (c.tailMonths.length) {
@@ -287,7 +287,8 @@ function renderTera(file: TeraFile | null, id: number) {
   }
   const wr = (v: number | null) => (v === null ? `n < ${file.min_n}, hidden` : pct(v));
   teraContext.textContent =
-    `Terastallized in ${pct(t.tera_rate)} of ${fmt.format(t.n)} sent-out appearances ` +
+    `${file.regulation}, rating band “${bandName(file.rating_band)}”: Terastallized in ${pct(t.tera_rate)} of ` +
+    `${fmt.format(t.n)} sent-out appearances ` +
     `(95% CI ${pct(t.tera_rate_ci_low)}–${pct(t.tera_rate_ci_high)}; ${fmt.format(t.tera_events)} Tera events). ` +
     `Win rate with Tera ${wr(t.win_rate_tera)}, without ${wr(t.win_rate_no_tera)} — not comparable, see note.`;
   if (!t.types.length) return emptyRow(teraBody, `Type split hidden: fewer than ${file.min_n} Tera events.`, 3);
