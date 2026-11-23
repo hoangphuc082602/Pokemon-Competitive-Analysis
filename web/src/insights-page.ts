@@ -112,7 +112,7 @@ function card(c: Card): HTMLElement {
 // ---- charts ------------------------------------------------------------------------------------------------
 /** Dumbbell: usage of each form in the lower band (hollow) and the higher band (filled). */
 function dumbbell(rows: ShiftRow[], lowName: string, highName: string): HTMLDivElement {
-  const W = 640, L = 130, R = 52, T = 22, rowH = 20, B = 18;
+  const W = 640, L = 96, R = 52, T = 22, rowH = 20, B = 18;
   const H = T + rows.length * rowH + B;
   const top = Math.max(...rows.flatMap((r) => [r.low, r.high]), 0.1);
   const xMax = Math.ceil(top * 10) / 10;
@@ -131,7 +131,7 @@ function dumbbell(rows: ShiftRow[], lowName: string, highName: string): HTMLDivE
   rows.forEach((r, i) => {
     const y = T + i * rowH + rowH / 2;
     const g = svg("g", {});
-    g.append(svg("text", { x: L - 10, y: y + 3, "text-anchor": "end", class: "label" }, r.label),
+    g.append(svg("text", { x: 4, y: y + 3, "text-anchor": "start", class: "label" }, r.label),
       svg("line", { x1: x(r.low), x2: x(r.high), y1: y, y2: y, class: "stem" }),
       svg("circle", { cx: x(r.low), cy: y, r: 4, class: "dot low" }),
       svg("circle", { cx: x(r.high), cy: y, r: 4, class: "dot" }),
