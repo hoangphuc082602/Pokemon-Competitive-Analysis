@@ -154,3 +154,7 @@ sup.src { vertical-align: super; line-height: 0; }
 .chart .seg-label { fill: #ffffff; font-size: 11px; font-weight: 600; }
 .chart .seg2 + .seg-label, .chart .seg3 + .seg-label { fill: #1c1d1f; }
 @media (max-width: 560px) { .insight .meta { grid-template-columns: 1fr; } }
+/* Insights charts: text 3px smaller than the Overview chart, so the plot gets the space */
+.insight .chart .axis { font-size: 8px; }
+.insight .chart .label, .insight .chart .value { font-size: 9px; }
+.insight .chart .seg-label { font-size: 8px; }

@@ -112,7 +112,7 @@ function card(c: Card): HTMLElement {
 // ---- charts ------------------------------------------------------------------------------------------------
 /** Dumbbell: usage of each form in the lower band (hollow) and the higher band (filled). */
 function dumbbell(rows: ShiftRow[], lowName: string, highName: string): HTMLDivElement {
-  const W = 640, L = 170, R = 70, T = 30, rowH = 26, B = 24;
+  const W = 640, L = 130, R = 52, T = 22, rowH = 20, B = 18;
   const H = T + rows.length * rowH + B;
   const top = Math.max(...rows.flatMap((r) => [r.low, r.high]), 0.1);
   const xMax = Math.ceil(top * 10) / 10;
@@ -122,20 +122,20 @@ function dumbbell(rows: ShiftRow[], lowName: string, highName: string): HTMLDivE
       rows.map((r) => `${r.label} ${pct(r.low)} to ${pct(r.high)}`).join("; ") });
   for (let v = 0; v <= xMax + 1e-9; v += 0.1) {
     root.append(svg("line", { x1: x(v), x2: x(v), y1: T - 6, y2: H - B, class: "grid" }),
-      svg("text", { x: x(v), y: H - 8, "text-anchor": "middle", class: "axis" }, pct(v, 0)));
+      svg("text", { x: x(v), y: H - 6, "text-anchor": "middle", class: "axis" }, pct(v, 0)));
   }
-  root.append(svg("circle", { cx: L, cy: 10, r: 5, class: "dot low" }),
-    svg("text", { x: L + 10, y: 14, class: "axis" }, lowName),
-    svg("circle", { cx: L + 130, cy: 10, r: 5, class: "dot" }),
-    svg("text", { x: L + 140, y: 14, class: "axis" }, highName));
+  root.append(svg("circle", { cx: L, cy: 8, r: 4, class: "dot low" }),
+    svg("text", { x: L + 8, y: 11, class: "axis" }, lowName),
+    svg("circle", { cx: L + 100, cy: 8, r: 4, class: "dot" }),
+    svg("text", { x: L + 108, y: 11, class: "axis" }, highName));
   rows.forEach((r, i) => {
     const y = T + i * rowH + rowH / 2;
     const g = svg("g", {});
-    g.append(svg("text", { x: L - 10, y: y + 4, "text-anchor": "end", class: "label" }, r.label),
+    g.append(svg("text", { x: L - 10, y: y + 3, "text-anchor": "end", class: "label" }, r.label),
       svg("line", { x1: x(r.low), x2: x(r.high), y1: y, y2: y, class: "stem" }),
-      svg("circle", { cx: x(r.low), cy: y, r: 5, class: "dot low" }),
-      svg("circle", { cx: x(r.high), cy: y, r: 5, class: "dot" }),
-      svg("text", { x: W - 4, y: y + 4, "text-anchor": "end", class: `value ${r.shift >= 0 ? "up" : "down"}` }, pp(r.shift)));
+      svg("circle", { cx: x(r.low), cy: y, r: 4, class: "dot low" }),
+      svg("circle", { cx: x(r.high), cy: y, r: 4, class: "dot" }),
+      svg("text", { x: W - 4, y: y + 3, "text-anchor": "end", class: `value ${r.shift >= 0 ? "up" : "down"}` }, pp(r.shift)));
     root.append(tip(g, `${r.label}: ${pct(r.low)} of ${lowName} teams (n ${fmt.format(r.nLow)}), ` +
       `${pct(r.high)} of ${highName} teams (n ${fmt.format(r.nHigh)})`));
   });
@@ -144,23 +144,23 @@ function dumbbell(rows: ShiftRow[], lowName: string, highName: string): HTMLDivE
 
 /** Horizontal bars of lift, with a line at 1 (chance) and the win rate vs band at the right. */
 function liftBars(list: Partner[]): HTMLDivElement {
-  const W = 640, L = 120, R = 90, T = 22, rowH = 26, B = 24;
+  const W = 640, L = 90, R = 64, T = 18, rowH = 20, B = 18;
   const H = T + list.length * rowH + B;
   const max = Math.max(...list.map((p) => p.lift), 2);
   const x = (v: number) => L + (v / max) * (W - L - R);
   const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
     "aria-label": "Lift of each partner: " + list.map((p) => `${p.species} ${p.lift.toFixed(1)}`).join("; ") });
-  root.append(svg("text", { x: W - 4, y: 12, "text-anchor": "end", class: "axis" }, "win rate vs band"),
+  root.append(svg("text", { x: W - 4, y: 10, "text-anchor": "end", class: "axis" }, "win rate vs band"),
     svg("line", { x1: x(1), x2: x(1), y1: T - 4, y2: H - B, class: "ref" }),
-    svg("text", { x: x(1) + 4, y: H - 8, class: "axis" }, "1 = chance"));
+    svg("text", { x: x(1) + 3, y: H - 6, class: "axis" }, "1 = chance"));
   list.forEach((p, i) => {
     const y = T + i * rowH;
     const g = svg("g", {});
     const cls = p.win_ci_low > p.win_rate - p.win_rate_delta ? "up" : p.win_ci_high < p.win_rate - p.win_rate_delta ? "down" : "muted";
-    g.append(svg("text", { x: L - 10, y: y + rowH / 2 + 4, "text-anchor": "end", class: "label" }, p.species),
-      svg("rect", { x: L, y: y + 5, width: Math.max(1, x(p.lift) - L), height: rowH - 10, class: "bar" }),
-      svg("text", { x: x(p.lift) + 6, y: y + rowH / 2 + 4, class: "value" }, `${p.lift.toFixed(1)}×`),
-      svg("text", { x: W - 4, y: y + rowH / 2 + 4, "text-anchor": "end", class: `value ${cls}` }, pp(p.win_rate_delta)));
+    g.append(svg("text", { x: L - 10, y: y + rowH / 2 + 3, "text-anchor": "end", class: "label" }, p.species),
+      svg("rect", { x: L, y: y + 6, width: Math.max(1, x(p.lift) - L), height: rowH - 12, class: "bar" }),
+      svg("text", { x: x(p.lift) + 6, y: y + rowH / 2 + 3, class: "value" }, `${p.lift.toFixed(1)}×`),
+      svg("text", { x: W - 4, y: y + rowH / 2 + 3, "text-anchor": "end", class: `value ${cls}` }, pp(p.win_rate_delta)));
     root.append(tip(g, `${p.species}: on ${fmt.format(p.n)} teams together, lift ${p.lift.toFixed(2)}, ` +
       `win rate ${pct(p.win_rate)} (95% CI ${pct(p.win_ci_low)}–${pct(p.win_ci_high)})`));
   });
@@ -169,7 +169,7 @@ function liftBars(list: Partner[]): HTMLDivElement {
 
 /** One stacked bar per species: its three most used Tera types and the rest. */
 function teraStack(rows: TeraRow[]): HTMLDivElement {
-  const W = 640, L = 120, R = 8, T = 8, rowH = 30, B = 8;
+  const W = 640, L = 90, R = 8, T = 6, rowH = 22, B = 6;
   const H = T + rows.length * rowH + B;
   const x = (v: number) => L + v * (W - L - R);
   const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
@@ -177,16 +177,16 @@ function teraStack(rows: TeraRow[]): HTMLDivElement {
       `${r.species} ${r.types.slice(0, 3).map((t) => `${t.tera_type} ${pct(t.type_share, 0)}`).join(", ")}`).join("; ") });
   rows.forEach((r, i) => {
     const y = T + i * rowH;
-    root.append(svg("text", { x: L - 10, y: y + rowH / 2 + 4, "text-anchor": "end", class: "label" }, r.species));
+    root.append(svg("text", { x: L - 10, y: y + rowH / 2 + 3, "text-anchor": "end", class: "label" }, r.species));
     const parts = r.types.slice(0, 3).map((t) => [t.tera_type, t.type_share] as const);
     const rest = 1 - parts.reduce((s, [, v]) => s + v, 0);
     let at = 0;
     [...parts, ["other", Math.max(0, rest)] as const].forEach(([name, share], k) => {
       if (share <= 0) return;
       const g = svg("g", {});
-      g.append(svg("rect", { x: x(at), y: y + 4, width: x(at + share) - x(at), height: rowH - 8, class: `seg seg${k}` }));
-      if (share >= 0.12) {
-        g.append(svg("text", { x: x(at) + 6, y: y + rowH / 2 + 4, class: "seg-label" }, `${name} ${pct(share, 0)}`));
+      g.append(svg("rect", { x: x(at), y: y + 5, width: x(at + share) - x(at), height: rowH - 10, class: `seg seg${k}` }));
+      if (share >= 0.09) {
+        g.append(svg("text", { x: x(at) + 6, y: y + rowH / 2 + 3, class: "seg-label" }, `${name} ${pct(share, 0)}`));
       }
       root.append(tip(g, `${r.species}: ${name} ${pct(share)} of ${fmt.format(r.tera_events)} Tera events`));
       at += share;
@@ -197,7 +197,7 @@ function teraStack(rows: TeraRow[]): HTMLDivElement {
 
 /** Usage (log scale) against win rate minus the band baseline, one dot per form. */
 function scatter(points: PopularityPoint[]): HTMLDivElement {
-  const W = 640, H = 300, L = 52, R = 16, T = 14, B = 34;
+  const W = 640, H = 300, L = 40, R = 12, T = 10, B = 26;
   const lx = points.map((p) => Math.log10(p.usage));
   const x0 = Math.floor(Math.min(...lx)), x1 = Math.ceil(Math.max(...lx));
   const yAbs = Math.max(0.02, Math.ceil(Math.max(...points.map((p) => Math.abs(p.delta))) * 100) / 100);
@@ -208,12 +208,12 @@ function scatter(points: PopularityPoint[]): HTMLDivElement {
   for (let e = x0; e <= x1; e++) {
     const u = 10 ** e;
     root.append(svg("line", { x1: x(u), x2: x(u), y1: T, y2: H - B, class: "grid" }),
-      svg("text", { x: x(u), y: H - 18, "text-anchor": "middle", class: "axis" }, pct(u, e < -2 ? 1 : 0)));
+      svg("text", { x: x(u), y: H - 13, "text-anchor": "middle", class: "axis" }, pct(u, e < -2 ? 1 : 0)));
   }
   const step = yAbs > 0.05 ? 0.02 : 0.01;
   for (let d = -Math.floor(yAbs / step) * step; d <= yAbs + 1e-9; d += step) {
     root.append(svg("line", { x1: L, x2: W - R, y1: y(d), y2: y(d), class: Math.abs(d) < 1e-9 ? "ref" : "grid" }),
-      svg("text", { x: L - 6, y: y(d) + 4, "text-anchor": "end", class: "axis" }, Math.abs(d) < 1e-9 ? "0" : pp(d)));
+      svg("text", { x: L - 6, y: y(d) + 3, "text-anchor": "end", class: "axis" }, Math.abs(d) < 1e-9 ? "0" : pp(d)));
   }
   root.append(svg("text", { x: (L + W - R) / 2, y: H - 3, "text-anchor": "middle", class: "axis" },
     "usage share (log scale)"),
