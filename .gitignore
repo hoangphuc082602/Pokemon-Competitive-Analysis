@@ -6,3 +6,7 @@ __pycache__/
 .DS_Store
 data/
 *.parquet
+# web app (ADR-013): build output and deps are not committed; exported web data is
+web/node_modules/
+web/dist/
+!web/public/data/
