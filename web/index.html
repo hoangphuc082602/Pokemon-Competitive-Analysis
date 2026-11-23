@@ -32,7 +32,7 @@
           <label>Search <input id="search" type="search" placeholder="Species or form" autocomplete="off" /></label>
         </form>
         <p id="context" class="context" aria-live="polite"></p>
-        <div class="table-scroll">
+        <div class="table-scroll joined">
           <table id="usage">
             <thead>
               <tr>
@@ -50,9 +50,12 @@
           </table>
         </div>
         <nav class="pager" aria-label="Team usage pages">
-          <button type="button" id="page-prev">‹ Previous</button>
-          <span id="page-info" aria-live="polite"></span>
-          <button type="button" id="page-next">Next ›</button>
+          <span id="page-info" class="pager-info" aria-live="polite"></span>
+          <div class="pager-controls">
+            <button type="button" id="page-prev" class="pager-step" aria-label="Previous page">‹</button>
+            <span id="page-numbers" class="pager-numbers"></span>
+            <button type="button" id="page-next" class="pager-step" aria-label="Next page">›</button>
+          </div>
         </nav>
         <p class="note">
           Unit: player-battle (one team in one completed battle); Bo3 games are not independent. One row per form:

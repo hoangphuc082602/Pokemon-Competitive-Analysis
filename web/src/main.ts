@@ -2,6 +2,7 @@ import "./style.css";
 import {
   DataError,
   chartPoints,
+  pageList,
   paginate,
   type ChartSeries,
   filterRows,
@@ -47,6 +48,7 @@ const tbody = document.querySelector<HTMLTableSectionElement>("#usage tbody")!;
 const pagePrev = $<HTMLButtonElement>("page-prev");
 const pageNext = $<HTMLButtonElement>("page-next");
 const pageInfo = $<HTMLSpanElement>("page-info");
+const pageNumbers = $<HTMLSpanElement>("page-numbers");
 const speciesSel = $<HTMLSelectElement>("species");
 const detailContext = $<HTMLParagraphElement>("detail-context");
 const detailBody = $<HTMLDivElement>("detail-body");
@@ -129,9 +131,24 @@ function renderTable(data: TeamUsage, query: string) {
   const all = filterRows(data.rows, query);
   const pg = paginate(all, usagePage, PAGE_SIZE);
   usagePage = pg.page;
-  pageInfo.textContent = all.length ? `${pg.from}–${pg.to} of ${all.length} · page ${pg.page} of ${pg.pages}` : "";
+  pageInfo.replaceChildren();
+  if (all.length) {
+    const b = (t: string) => Object.assign(document.createElement("strong"), { textContent: t });
+    pageInfo.append("Showing ", b(`${pg.from}–${pg.to}`), " of ", b(fmt.format(all.length)), " forms");
+  }
   pagePrev.disabled = pg.page <= 1;
   pageNext.disabled = pg.page >= pg.pages;
+  pageNumbers.replaceChildren(...(pg.pages > 1 ? pageList(pg.page, pg.pages) : []).map((p) => {
+    if (p === "…") return Object.assign(document.createElement("span"), { className: "pager-gap", textContent: "…" });
+    const btn = Object.assign(document.createElement("button"), { type: "button", className: "pager-num",
+      textContent: String(p) });
+    if (p === pg.page) btn.setAttribute("aria-current", "page");
+    btn.addEventListener("click", () => {
+      usagePage = p;
+      renderTable(data, query);
+    });
+    return btn;
+  }));
   const rows = pg.rows;
   tbody.replaceChildren(...rows.map((r) => {
     const tr = document.createElement("tr");
@@ -265,21 +282,23 @@ function drawTrend(c: ChartSeries, band: string) {
     const p = at.get(m);
     if (!p) return;
     const battles = c.monthBattles[m];
-    const lines = [
-      `${m} · band “${band}”`,
-      `Usage ${pct(p.usage_share)}: ${fmt.format(p.n)} of ${battles === undefined ? "?" : fmt.format(battles)} teams`,
-      `Win rate ${pct(p.win_rate)} (95% CI ${pct(p.win_ci_low)}–${pct(p.win_ci_high)})`,
-      ...(thin.has(m) ? ["Few battles in this band this month (< 5% of its busiest month): read with care."] : []),
+    // [label, value, detail] rows; the value is the highlighted figure
+    const rows: [string, string, string][] = [
+      ["Usage", pct(p.usage_share), `${fmt.format(p.n)} of ${battles === undefined ? "?" : fmt.format(battles)} teams`],
+      ["Win rate", pct(p.win_rate), `95% CI ${pct(p.win_ci_low)}–${pct(p.win_ci_high)}`],
     ];
-    const g = svg("g", { class: "pt", tabindex: 0, "aria-label": lines.join("; ") });
+    const head = `${m} · ${band}`;
+    const warn = thin.has(m) ? "Few battles in this band this month (< 5% of its busiest month): read with care." : "";
+    const g = svg("g", { class: "pt", tabindex: 0,
+      "aria-label": [head, ...rows.map((r) => r.join(" ")), warn].filter(Boolean).join("; ") });
+    const el = (tag: string, cls: string, text = "") =>
+      Object.assign(document.createElement(tag), { className: cls, textContent: text });
     const show = () => {
-      tip.replaceChildren(...lines.map((text, k) => {
-        const d = document.createElement("div");
-        d.textContent = text;
-        if (k === 0) d.className = "tip-head";
-        if (k === 3) d.className = "tip-warn";
+      tip.replaceChildren(el("div", "tip-head", head), ...rows.map(([label, value, detail]) => {
+        const d = el("div", "tip-row");
+        d.append(el("span", "tip-label", label), el("span", "tip-value", value), el("span", "tip-detail", detail));
         return d;
-      }));
+      }), ...(warn ? [el("div", "tip-warn", warn)] : []));
       tip.style.left = `${(100 * x(i)) / W}%`;
       tip.style.top = `${(100 * y(p.usage_share)) / H}%`;
       tip.dataset.align = x(i) < W * 0.25 ? "start" : x(i) > W * 0.75 ? "end" : "middle";
@@ -455,7 +474,8 @@ async function start() {
       if (mine !== token) return;
       current = null;
       tbody.replaceChildren();
-      pageInfo.textContent = "";
+      pageInfo.replaceChildren();
+      pageNumbers.replaceChildren();
       pagePrev.disabled = pageNext.disabled = true;
       context.textContent = `Could not load data: ${e instanceof Error ? e.message : String(e)}`;
     }

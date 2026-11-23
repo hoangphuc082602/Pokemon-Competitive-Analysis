@@ -9,6 +9,7 @@ import {
   loadTeamUsage,
   loadTeraFile,
   loadTrendFile,
+  pageList,
   paginate,
   parseManifest,
   speciesEntry,
@@ -129,6 +130,15 @@ describe("paginate", () => {
   it("cuts pages of the given size and reports the shown range", () => {
     expect(paginate(rows, 1, 15)).toEqual({ rows: rows.slice(0, 15), page: 1, pages: 3, from: 1, to: 15 });
     expect(paginate(rows, 3, 15)).toEqual({ rows: [31, 32], page: 3, pages: 3, from: 31, to: 32 });
+  });
+
+  it("lists the page buttons: first, last, current ±1, with gaps as an ellipsis", () => {
+    expect(pageList(1, 17)).toEqual([1, 2, "…", 17]);
+    expect(pageList(3, 17)).toEqual([1, 2, 3, 4, "…", 17]);
+    expect(pageList(6, 17)).toEqual([1, "…", 5, 6, 7, "…", 17]);
+    expect(pageList(17, 17)).toEqual([1, "…", 16, 17]);
+    expect(pageList(2, 4)).toEqual([1, 2, 3, 4]);
+    expect(pageList(1, 1)).toEqual([1]);
   });
 
   it("clamps an out-of-range page and handles an empty list", () => {

@@ -296,6 +296,19 @@ export function paginate<T>(rows: T[], page: number, size: number): Page<T> {
   return { rows: shown, page: p, pages, from: shown.length ? start + 1 : 0, to: start + shown.length };
 }
 
+/** Page buttons to show: first, last and current ±1; a gap of more than one page becomes "…". */
+export function pageList(page: number, pages: number): (number | "…")[] {
+  const keep = [...new Set([1, page - 1, page, page + 1, pages])].filter((p) => p >= 1 && p <= pages).sort((a, b) => a - b);
+  const out: (number | "…")[] = [];
+  keep.forEach((p, i) => {
+    const prev = keep[i - 1];
+    if (prev !== undefined && p - prev === 2) out.push(prev + 1);
+    else if (prev !== undefined && p - prev > 2) out.push("…");
+    out.push(p);
+  });
+  return out;
+}
+
 const FORM_NOTES: Record<FormBasis, string> = {
   listed: "",
   observed: "Form hidden at team preview, seen in battle: n counts only teams where this form was sent out.",
