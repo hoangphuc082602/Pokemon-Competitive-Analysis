@@ -9,5 +9,6 @@ data/
 # web app (ADR-013): build output and deps are not committed; exported web data is
 web/node_modules/
 web/dist/
+web/.vite/
 !web/public/data/
 .pnpm-store/

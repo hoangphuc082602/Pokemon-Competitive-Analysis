@@ -5,6 +5,10 @@ import {
   filterRows,
   chartPoints,
   formNote,
+  baseStatTotal,
+  formMaster,
+  loadSpeciesForms,
+  typeLabel,
   loadPairFile,
   loadTeamUsage,
   loadTeraFile,
@@ -35,6 +39,7 @@ const manifest = (over: Record<string, unknown> = {}) => ({
   ],
   bands: ["all", "1500_plus"],
   datasets: {
+    species_forms: { path: "species_forms.json", rows: 2, bytes: 10 },
     team_usage: [
       { regulation: "regA", rating_band: "all", path: "team_usage/regA__all.json", rows: 2, bytes: 10 },
       { regulation: "regA", rating_band: "1500_plus", path: "team_usage/regA__1500_plus.json", rows: 1, bytes: 10 },
@@ -329,5 +334,48 @@ describe("tera", () => {
     const other = { ...file, rating_band: "all" };
     await expect(loadTeraFile(m, "regA", "1500_plus", async () => other, "")).rejects
       .toThrow(expect.objectContaining({ code: "mismatch" }));
+  });
+});
+
+describe("species forms: typing and base stats per form (BR-05)", () => {
+  const m = parseManifest(manifest()) as Manifest;
+  const stats = (hp: number) => ({ hp, atk: 130, def: 100, spatk: 63, spdef: 60, spe: 97 });
+  const forms = [
+    { species: "Urshifu", form: "urshifu-rapid-strike", poke_id: 10191, type_1: "fighting", type_2: "water", ...stats(100) },
+    { species: "Urshifu", form: "urshifu-single-strike", poke_id: 892, type_1: "fighting", type_2: "dark", ...stats(90) },
+    { species: "Pikachu", form: "pikachu", poke_id: 25, type_1: "electric", type_2: null, ...stats(35) },
+    { species: "Gimmighoul", form: "gimmighoul", poke_id: 999, type_1: null, type_2: null, hp: null, atk: null,
+      def: null, spatk: null, spdef: null, spe: null },
+  ];
+
+  it("loads the mapping file named in the manifest, indexed by poke_id", async () => {
+    const urls: string[] = [];
+    const index = await loadSpeciesForms(m, async (url) => { urls.push(url); return forms; }, "data/");
+    expect(urls).toEqual(["data/species_forms.json"]);
+    expect(formMaster(index, row("Urshifu", 1, { poke_id: 10191 }))?.type_2).toBe("water");
+    expect(formMaster(index, row("Urshifu", 1, { poke_id: 892 }))?.type_2).toBe("dark");   // two forms, two typings
+  });
+
+  it("rejects a mapping file that is not a list of forms", async () => {
+    await expect(loadSpeciesForms(m, async () => ({ rows: [] }), "")).rejects.toThrow(DataError);
+  });
+
+  it("gives a row without a poke_id no form data, never the species' other forms", async () => {
+    const index = await loadSpeciesForms(m, async () => forms, "");
+    expect(formMaster(index, row("Urshifu", 1, { poke_id: null, form: null, form_basis: "unobserved" }))).toBeUndefined();
+    expect(formMaster(index, row("Arceus", 1, { poke_id: null, form: null, form_basis: "species_only" }))).toBeUndefined();
+    expect(formMaster(index, row("Unknown", 1, { poke_id: 123 }))).toBeUndefined();
+  });
+
+  it("labels typing and totals base stats, unknown as null", async () => {
+    const index = await loadSpeciesForms(m, async () => forms, "");
+    const f = (id: number) => formMaster(index, row("x", 1, { poke_id: id }));
+    expect(typeLabel(f(10191))).toBe("Fighting / Water");
+    expect(typeLabel(f(25))).toBe("Electric");
+    expect(typeLabel(f(999))).toBeNull();
+    expect(typeLabel(undefined)).toBeNull();
+    expect(baseStatTotal(f(10191))).toBe(550);
+    expect(baseStatTotal(f(999))).toBeNull();
+    expect(baseStatTotal(undefined)).toBeNull();
   });
 });
