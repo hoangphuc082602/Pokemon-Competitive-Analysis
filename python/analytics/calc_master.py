@@ -5,7 +5,7 @@
 
 Run after export_web (it reads the species_forms.json that export wrote). Writes one JSON file:
     forms       every form of species_forms.json that has typing and base stats: its own types and base stats, its
-                abilities and the ids of the damaging moves it learns (any learn method, any game version, as crawled)
+                abilities and the ids of the damaging moves it learns (any learn method; the crawl keeps Scarlet / Violet only)
     moves       only the moves in those learnsets that have a base power and a physical / special damage class
     natures     name, increased / decreased stat (null for neutral natures)
     type_chart  [attack_type, defense_type, multiplier] for every pair that is not 1x
