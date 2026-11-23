@@ -69,4 +69,23 @@ footer { color: var(--muted); font-size: 0.85rem; padding: 24px 16px 40px; }
 .chart .hit { fill: transparent; }
 .chart .pt:hover .dot, .chart .pt:focus .dot { r: 6; }
 .chart .pt:focus { outline: none; }
+.chart .plot { position: relative; }
+.chart .tip {
+  position: absolute; z-index: 1; pointer-events: none; max-width: 280px; width: max-content;
+  transform: translate(-50%, var(--ty));
+  background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 8px; font-size: 0.8rem; line-height: 1.4; box-shadow: 0 2px 8px rgb(0 0 0 / 0.15);
+  font-variant-numeric: tabular-nums;
+}
+.chart .tip[data-align="start"] { transform: translate(-12px, var(--ty)); }
+.chart .tip[data-align="end"] { transform: translate(calc(-100% + 12px), var(--ty)); }
+.chart .tip[hidden] { display: none; }
+.chart .tip-head { font-weight: 600; }
+.chart .tip-warn { color: var(--muted); }
+.pager { display: flex; align-items: center; gap: 12px; margin: 8px 0; font-size: 0.9rem; color: var(--muted); }
+.pager button {
+  font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 10px; cursor: pointer;
+}
+.pager button:disabled { opacity: 0.45; cursor: default; }
 details.note summary { cursor: pointer; margin: 4px 0; }

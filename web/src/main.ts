@@ -2,6 +2,7 @@ import "./style.css";
 import {
   DataError,
   chartPoints,
+  paginate,
   type ChartSeries,
   filterRows,
   formNote,
@@ -43,6 +44,9 @@ const bandSel = $<HTMLSelectElement>("band");
 const search = $<HTMLInputElement>("search");
 const context = $<HTMLParagraphElement>("context");
 const tbody = document.querySelector<HTMLTableSectionElement>("#usage tbody")!;
+const pagePrev = $<HTMLButtonElement>("page-prev");
+const pageNext = $<HTMLButtonElement>("page-next");
+const pageInfo = $<HTMLSpanElement>("page-info");
 const speciesSel = $<HTMLSelectElement>("species");
 const detailContext = $<HTMLParagraphElement>("detail-context");
 const detailBody = $<HTMLDivElement>("detail-body");
@@ -118,8 +122,17 @@ function nameCell(r: UsageRow): HTMLTableCellElement {
   return td;
 }
 
+const PAGE_SIZE = 15;
+let usagePage = 1;   // reset to 1 when the regulation, band or search changes
+
 function renderTable(data: TeamUsage, query: string) {
-  const rows = filterRows(data.rows, query);
+  const all = filterRows(data.rows, query);
+  const pg = paginate(all, usagePage, PAGE_SIZE);
+  usagePage = pg.page;
+  pageInfo.textContent = all.length ? `${pg.from}–${pg.to} of ${all.length} · page ${pg.page} of ${pg.pages}` : "";
+  pagePrev.disabled = pg.page <= 1;
+  pageNext.disabled = pg.page >= pg.pages;
+  const rows = pg.rows;
   tbody.replaceChildren(...rows.map((r) => {
     const tr = document.createElement("tr");
     const rank = data.rows.indexOf(r) + 1;
@@ -240,21 +253,49 @@ function drawTrend(c: ChartSeries, band: string) {
     else flush();
   });
   flush();
+  // HTML tooltip (native SVG <title> tooltips are slow and not shown on touch / keyboard focus)
+  const plot = document.createElement("div");
+  plot.className = "plot";
+  const tip = document.createElement("div");
+  tip.className = "tip";
+  tip.hidden = true;
+  tip.setAttribute("role", "status");
+  const hide = () => { tip.hidden = true; };
   months.forEach((m, i) => {
     const p = at.get(m);
     if (!p) return;
-    const g = svg("g", { class: "pt", tabindex: 0 });
-    const title = svg("title", {});
     const battles = c.monthBattles[m];
-    title.textContent = `${m} · band “${band}”\n` +
-      `Usage ${pct(p.usage_share)}: ${fmt.format(p.n)} of ${battles === undefined ? "?" : fmt.format(battles)} teams\n` +
-      `Win rate ${pct(p.win_rate)} (95% CI ${pct(p.win_ci_low)}–${pct(p.win_ci_high)})` +
-      (thin.has(m) ? `\nFew battles in this band this month (< 5% of its busiest month): read with care.` : "");
-    g.append(title, svg("circle", { cx: x(i), cy: y(p.usage_share), r: 12, class: "hit" }),
+    const lines = [
+      `${m} · band “${band}”`,
+      `Usage ${pct(p.usage_share)}: ${fmt.format(p.n)} of ${battles === undefined ? "?" : fmt.format(battles)} teams`,
+      `Win rate ${pct(p.win_rate)} (95% CI ${pct(p.win_ci_low)}–${pct(p.win_ci_high)})`,
+      ...(thin.has(m) ? ["Few battles in this band this month (< 5% of its busiest month): read with care."] : []),
+    ];
+    const g = svg("g", { class: "pt", tabindex: 0, "aria-label": lines.join("; ") });
+    const show = () => {
+      tip.replaceChildren(...lines.map((text, k) => {
+        const d = document.createElement("div");
+        d.textContent = text;
+        if (k === 0) d.className = "tip-head";
+        if (k === 3) d.className = "tip-warn";
+        return d;
+      }));
+      tip.style.left = `${(100 * x(i)) / W}%`;
+      tip.style.top = `${(100 * y(p.usage_share)) / H}%`;
+      tip.dataset.align = x(i) < W * 0.25 ? "start" : x(i) > W * 0.75 ? "end" : "middle";
+      tip.style.setProperty("--ty", y(p.usage_share) < H * 0.4 ? "12px" : "calc(-100% - 12px)");   // below high points
+      tip.hidden = false;
+    };
+    g.addEventListener("pointerenter", show);
+    g.addEventListener("focus", show);
+    g.addEventListener("pointerleave", hide);
+    g.addEventListener("blur", hide);
+    g.append(svg("circle", { cx: x(i), cy: y(p.usage_share), r: 12, class: "hit" }),
       svg("circle", { cx: x(i), cy: y(p.usage_share), r: 4, class: thin.has(m) ? "dot thin" : "dot" }));
     root.append(g);
   });
-  trendChart.replaceChildren(root);
+  plot.append(root, tip);
+  trendChart.replaceChildren(plot);
 }
 
 function renderTrend(file: TrendFile | null, id: number) {
@@ -397,6 +438,7 @@ async function start() {
     search.value = filters.query;
     sync();
     const mine = ++token;
+    usagePage = 1;
     context.textContent = "Loading…";
     detailContext.textContent = "Loading…";
     const pairLoad = Promise.all([tryLoad("partners"), tryLoad("matchups"),
@@ -413,6 +455,8 @@ async function start() {
       if (mine !== token) return;
       current = null;
       tbody.replaceChildren();
+      pageInfo.textContent = "";
+      pagePrev.disabled = pageNext.disabled = true;
       context.textContent = `Could not load data: ${e instanceof Error ? e.message : String(e)}`;
     }
     try {   // a broken partners / matchups file must not blank the usage table
@@ -438,8 +482,16 @@ async function start() {
   search.addEventListener("input", () => {
     filters = { ...filters, query: search.value };
     sync();
+    usagePage = 1;
     if (current) renderTable(current, filters.query);
   });
+  const turnPage = (delta: number) => {
+    if (!current) return;
+    usagePage += delta;
+    renderTable(current, filters.query);
+  };
+  pagePrev.addEventListener("click", () => turnPage(-1));
+  pageNext.addEventListener("click", () => turnPage(1));
   speciesSel.addEventListener("change", () => {
     filters = { ...filters, species: speciesSel.value ? Number(speciesSel.value) : null };
     sync();

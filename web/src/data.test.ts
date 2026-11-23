@@ -9,6 +9,7 @@ import {
   loadTeamUsage,
   loadTeraFile,
   loadTrendFile,
+  paginate,
   parseManifest,
   speciesEntry,
   teraEntry,
@@ -119,6 +120,21 @@ describe("filterRows", () => {
     const rows = [row("Urshifu", 3), row("Incineroar", 2), row("Rillaboom", 1)];
     expect(filterRows(rows, "  inC ").map((r) => r.species)).toEqual(["Incineroar"]);
     expect(filterRows(rows, "").length).toBe(3);
+  });
+});
+
+describe("paginate", () => {
+  const rows = Array.from({ length: 32 }, (_, i) => i + 1);
+
+  it("cuts pages of the given size and reports the shown range", () => {
+    expect(paginate(rows, 1, 15)).toEqual({ rows: rows.slice(0, 15), page: 1, pages: 3, from: 1, to: 15 });
+    expect(paginate(rows, 3, 15)).toEqual({ rows: [31, 32], page: 3, pages: 3, from: 31, to: 32 });
+  });
+
+  it("clamps an out-of-range page and handles an empty list", () => {
+    expect(paginate(rows, 9, 15).page).toBe(3);
+    expect(paginate(rows, 0, 15).page).toBe(1);
+    expect(paginate([], 2, 15)).toEqual({ rows: [], page: 1, pages: 1, from: 0, to: 0 });
   });
 });
 

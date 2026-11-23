@@ -279,6 +279,23 @@ export function filterRows(rows: UsageRow[], query: string): UsageRow[] {
   return q ? rows.filter((r) => r.label.toLowerCase().includes(q) || r.species.toLowerCase().includes(q)) : rows;
 }
 
+export interface Page<T> {
+  rows: T[];
+  page: number;    // 1-based, clamped to [1, pages]
+  pages: number;   // at least 1
+  from: number;    // 1-based index of the first shown row (0 when empty)
+  to: number;
+}
+
+/** One page of rows; an out-of-range page is clamped. */
+export function paginate<T>(rows: T[], page: number, size: number): Page<T> {
+  const pages = Math.max(1, Math.ceil(rows.length / size));
+  const p = Math.min(Math.max(1, Math.trunc(page) || 1), pages);
+  const start = (p - 1) * size;
+  const shown = rows.slice(start, start + size);
+  return { rows: shown, page: p, pages, from: shown.length ? start + 1 : 0, to: start + shown.length };
+}
+
 const FORM_NOTES: Record<FormBasis, string> = {
   listed: "",
   observed: "Form hidden at team preview, seen in battle: n counts only teams where this form was sent out.",
