@@ -17,14 +17,15 @@ Source: the CSV / Parquet files in `data/aggregates/` (simplest, no driver neede
 | `dim_species` | dimension | one row per species (`species_id`, label, `has_masked_form`) |
 | `regulation_totals` | fact (denominators) | regulation × rating band: battles, player-battles |
 | `pokemon_usage_stats` | fact | regulation × rating band × species × form |
-| `pokemon_usage_monthly` + `regulation_monthly_totals` | fact | regulation × month × species; `tail` flag |
+| `pokemon_usage_monthly` + `regulation_monthly_totals` | fact | regulation × month × rating band × species; `tail` flag (per regulation-month) |
 | `pokemon_tera_summary`, `pokemon_tera_types` | fact | regulation × rating band × species (× Tera type) |
 | `pokemon_partner_stats` → `pair_directed` | fact | regulation × rating band × **ordered** species pair (see 1.1) |
 
 Relationships (all many-to-one, single direction from the dimension):
 
 - `dim_regulation[regulation]` → every fact table.
-- `dim_rating_band[rating_band]` → `regulation_totals`, `pokemon_usage_stats`, `pokemon_tera_*`, `pokemon_partner_stats`.
+- `dim_rating_band[rating_band]` → `regulation_totals`, `pokemon_usage_stats`, `pokemon_tera_*`, `pokemon_partner_stats`,
+  `pokemon_usage_monthly`, `regulation_monthly_totals`.
 - `dim_month[month]` → `pokemon_usage_monthly`, `regulation_monthly_totals`.
 - `dim_species[species_id]` → `pokemon_usage_stats`, `pokemon_usage_monthly`, `pokemon_tera_*`, `pair_directed[species_a_id]`.
   For the partner's species make a second copy `dim_partner` related to `pair_directed[species_b_id]` (role-playing dimension).
@@ -93,7 +94,7 @@ Pair %  = MAX ( pair_directed[share_of_a] )                    -- share of A's t
 Pair Win %      = MAX ( pair_directed[win_rate] )
 Pair Win vs Band (pp) = ( [Pair Win %] - MAX ( pair_directed[band_win_rate] ) ) * 100   -- of the team, not of A: a screening value, not synergy
 
--- monthly visuals: pokemon_usage_monthly has no rating band, so the band slicer does not apply to them (population = all players)
+-- monthly visuals: pokemon_usage_monthly has one row set per rating band ('all' repeats the bands): always filter one band
 Monthly Teams         = SUM ( pokemon_usage_monthly[appearances] )
 Monthly Player Battles = SUM ( regulation_monthly_totals[player_battles] )
 Monthly Usage %       = DIVIDE ( [Monthly Teams], [Monthly Player Battles] )

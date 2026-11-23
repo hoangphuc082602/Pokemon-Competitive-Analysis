@@ -243,7 +243,7 @@ python -m python.analytics.dim_tables --output-dir data/output                  
 | `pokemon_usage_stats`, `regulation_totals` | regulation × rating band × species × form |
 | `pokemon_tera_summary`, `pokemon_tera_types` | regulation × rating band × species (× Tera type) |
 | `pokemon_partner_stats` | regulation × rating band × species pair |
-| `pokemon_usage_monthly`, `regulation_monthly_totals` | regulation × month × species |
+| `pokemon_usage_monthly`, `regulation_monthly_totals` | regulation × month × rating band × species |
 | `pokemon_matchup_stats` | regulation × rating band × ordered species pair |
 | `dim_regulation`, `dim_rating_band`, `dim_month`, `dim_species` | labels and sort orders for the BI layer |
 

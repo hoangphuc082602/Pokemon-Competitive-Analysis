@@ -43,6 +43,13 @@ def test_stability_ignores_tail_months():
     assert r["months"] == 2 and r["mean_rank_corr"] == 1.0
 
 
+def test_stability_reads_only_the_all_band_rows():
+    steady = {m: {1: .5, 2: .4, 3: .3} for m in ("2025-01", "2025-02")}
+    noise = _monthly({"2025-01": {1: .1, 2: .2, 3: .9}, "2025-02": {1: .9, 2: .2, 3: .1}}).assign(rating_band="1500_plus")
+    m = pd.concat([_monthly(steady).assign(rating_band="all"), noise], ignore_index=True)
+    assert eda.stability(m).iloc[0]["mean_rank_corr"] == 1.0
+
+
 def test_band_shift_reports_percentage_points_between_bands():
     low = _usage([("Calyrex", 2500, 1250), ("Koraidon", 5000, 2500)], band="below_1200", pb=10000)
     high = _usage([("Calyrex", 6000, 3100), ("Koraidon", 2500, 1200)], band="1500_plus", pb=10000)
