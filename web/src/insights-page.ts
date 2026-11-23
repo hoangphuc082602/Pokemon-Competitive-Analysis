@@ -8,8 +8,10 @@ import {
   regulationLabel,
   speciesEntry,
   type Manifest,
+  type PairFile,
   type Partner,
   type TeamUsage,
+  type TeraFile,
   type TeraRow,
 } from "./data";
 import {
@@ -31,7 +33,8 @@ const DONDOZO = 977, TATSUGIRI = 978, PELIPPER = 279, ARCHALUDON = 1018;
 const EDA = {
   popularity: { species: 204, rho: 0.61, min: 0.48, max: 0.65 },                 // section 4, first table
   byBand: { species: 68, below_1200: 0.31, "1200_1399": 0.11, "1400_1499": 0.25, "1500_plus": 0.37 },  // section 4
-  teraRange: { min: 0.196, max: 0.214 },                                          // section 5
+  tera: { min: 0.196, max: 0.214, regulations: 7, medianTopType: 0.57 },         // section 5 (median: Reg F 2026)
+  urshifuShift: 0.099,                                                            // section 3, Reg F 2026
 };
 
 const fmt = new Intl.NumberFormat("en");
@@ -73,7 +76,12 @@ function chartBox(root: SVGSVGElement): HTMLDivElement {
 interface Card {
   id: string;
   title: string;
-  meta: [string, Piece[]][];
+  // every finding states these five (BR: population, regulation, band, n, baseline)
+  population: Piece[];
+  regulation: string;
+  band: Piece[];
+  n: Piece[];
+  baseline: Piece[];
   chart: HTMLElement;
   how: string;
   fact: Piece[];
@@ -90,7 +98,9 @@ function card(c: Card): HTMLElement {
   const h = el("h2", "", c.title);
   h.id = `${c.id}-title`;
   const meta = el("dl", "meta");
-  for (const [k, v] of c.meta) meta.append(el("dt", "", k), el("dd", "", ...v));
+  const rows: [string, Piece[]][] = [["Population", c.population], ["Regulation", [c.regulation]], ["Rating band", c.band],
+    ["n", c.n], ["Baseline", c.baseline]];
+  for (const [k, v] of rows) meta.append(el("dt", "", k), el("dd", "", ...v));
   const block = (label: string, kids: Piece[], cls = "") => el("p", `part ${cls}`, el("strong", "part-label", label), " ", ...kids);
   const links = el("p", "deep-links", ...c.links.flatMap(([t, href], i) => [i ? " · " : "", link(`${t} →`, href)]));
   sec.append(h, meta, c.chart, el("p", "note", el("strong", "", "How to read: "), c.how),
@@ -222,51 +232,62 @@ async function fetchJson(url: string): Promise<unknown> {
   return res.json();
 }
 
-const bandMeta = (d: TeamUsage, name: string): Piece[] =>
-  [`${name}: `, fig(fmt.format(d.player_battles)), " player-battles, baseline win rate ", fig(pct(d.baseline_win_rate))];
+const ALL_PLAYERS: Piece[] = ["All players (rated and unrated; no band is summed)"];
+const pbCount = (d: TeamUsage): Piece[] => [fig(fmt.format(d.player_battles)), " player-battles"];
+const regBaseline = (d: TeamUsage): Piece[] =>
+  ["win rate of all teams in the regulation and band: ", fig(pct(d.baseline_win_rate))];
+const names = (xs: ShiftRow[]) => xs.map((r) => r.label).join(", ");
 
 function shiftCard(reg: string, low: TeamUsage, high: TeamUsage): HTMLElement {
   const rows = bandShift(low, high, MIN_TEAMS);
   const drops = rows.slice(0, 4);
-  const rises = rows.slice(-4);
-  const shown = rows.length > 8 ? [...drops, ...rises] : rows;
+  const rises = rows.slice(-4).reverse();      // largest rise first
+  const shown = rows.length > 8 ? [...drops, ...[...rises].reverse()] : rows;
   const say = (r: ShiftRow): Piece[] => [`${r.label} (`, fig(pct(r.low)), " → ", fig(pct(r.high)), ", ", fig(pp(r.shift)), ")"];
   const list = (xs: ShiftRow[]) => xs.flatMap((r, i) => [i ? (i === xs.length - 1 ? " and " : ", ") : "", ...say(r)]);
   return card({
     id: "band-shift",
     title: "1. Players rated 1500+ bring different Pokémon from players below 1200",
-    meta: [["Population", [`completed ${reg} battles, unit = player-battle`]],
-      ["Bands", [...bandMeta(low, "below 1200"), "; ", ...bandMeta(high, "1500+")]],
-      ["n", [fig(String(rows.length)), ` forms with at least ${fmt.format(MIN_TEAMS)} teams in both bands`]]],
+    population: ["completed battles, unit = player-battle (one team in one battle)"],
+    regulation: reg,
+    band: ["below 1200 (", ...pbCount(low), ") against 1500+ (", ...pbCount(high), "), each measured against its own teams"],
+    n: [fig(String(rows.length)), ` forms with at least ${fmt.format(MIN_TEAMS)} teams in both bands`],
+    baseline: ["usage is a share of each band's own teams; band baseline win rates ", fig(pct(low.baseline_win_rate)),
+      " below 1200 and ", fig(pct(high.baseline_win_rate)), " at 1500+ (not used in this comparison)"],
     chart: dumbbell(shown, "below 1200", "1500+"),
     how: "one row per form; the hollow dot is its share of teams below 1200, the filled dot its share at 1500+. " +
-      "The four largest falls and the four largest rises are shown; the value on the right is the difference.",
-    fact: ["The forms that gain most at 1500+ are ", ...list([...rises].reverse().slice(0, 3)),
+      "The four largest falls and the four largest rises are shown; the value on the right is the difference. " +
+      "The two values of a row are in the two Overview links below (one per band).",
+    fact: ["the forms that gain most at 1500+ are ", ...list(rises.slice(0, 3)),
       ". The forms that lose most are ", ...list(drops.slice(0, 3)), "."],
-    calc: ["usage = teams with the form ÷ player-battles of the band, so each band is measured against its own teams; " +
-      "the difference is in percentage points. Only species with exactly one form, listed at team preview, are compared: " +
-      "forms are never summed, and masked forms such as Urshifu are left out (the EDA report counts it at species level: ",
-      fig("+9.9 pp", "eda"), ")."],
-    interp: ["at high rating, usage moves away from the most used support Pokémon (Incineroar, Rillaboom in this " +
-      "snapshot) and toward a few attackers and the Dondozo + Tatsugiri pair. This describes what the players who upload replays bring at each rating, not why they bring it, and " +
-      "not that a pick makes a player stronger."],
+    calc: ["usage = teams with the form ÷ player-battles of the band; the difference is in percentage points. Only " +
+      "species with exactly one form, listed at team preview, are compared: forms are never summed, so masked or " +
+      "multi-form species (Urshifu, Ogerpon, Tatsugiri…) are left out. The EDA report counts them at species level " +
+      "(e.g. Urshifu ", fig(pp(EDA.urshifuShift), "eda"), ")."],
+    interp: [`at high rating, usage moves away from ${names(drops.slice(0, 2))} and toward ${names(rises.slice(0, 2))}. ` +
+      "This describes what the players who upload replays bring at each rating, not why they bring it, and not that " +
+      "a pick makes a player stronger."],
     links: [["Open “below 1200” in Meta Overview", overviewLink(REG, "below_1200")],
       ["Open “1500+” in Meta Overview", overviewLink(REG, "1500_plus")]],
   });
 }
 
-function partnerCard(reg: string, all: TeamUsage, partners: Awaited<ReturnType<typeof loadPairFile>>): HTMLElement {
+function partnerCard(reg: string, all: TeamUsage, partners: PairFile): HTMLElement {
   const dondozo = speciesEntry(partners, DONDOZO)?.partners ?? [];
   const top = [...dondozo].sort((a, b) => b.n - a.n).slice(0, 8);
   const tats = dondozo.find((p) => p.species_id === TATSUGIRI);
   const rain = speciesEntry(partners, PELIPPER)?.partners?.find((p) => p.species_id === ARCHALUDON);
-  const teams = all.rows.filter((r) => r.species_id === DONDOZO).reduce((s, r) => s + r.n, 0);
+  const own = all.rows.filter((r) => r.species_id === DONDOZO);
+  const teams = own.length === 1 && own[0].form_basis === "listed" ? own[0].n : null;   // one listed form: no summing
   return card({
     id: "lift",
     title: "2. Lift finds team archetypes; it does not say which pairs win",
-    meta: [["Population", [`completed ${reg} battles, all players, unit = player-battle`]],
-      ["n", [fig(fmt.format(teams)), " Dondozo teams; pairs shown with n ≥ ", fig(String(partners.min_n)), " teams"]],
-      ["Baseline", ["win rate of all teams in the regulation: ", fig(pct(all.baseline_win_rate))]]],
+    population: ["completed battles, unit = player-battle; species level (partners are counted per species)"],
+    regulation: reg,
+    band: ALL_PLAYERS,
+    n: [...(teams === null ? [] : [fig(fmt.format(teams)), " Dondozo teams; "]), "pairs shown with n ≥ ",
+      fig(String(partners.min_n)), " teams together"],
+    baseline: regBaseline(all),
     chart: top.length ? liftBars(top) : el("p", "muted", "Dondozo's partners are not in this export."),
     how: "Dondozo's eight most frequent partners. The bar is the lift (how many times more often the two are on " +
       "the same team than if teams were random); the right column is the win rate of teams with both, minus the baseline " +
@@ -277,7 +298,7 @@ function partnerCard(reg: string, all: TeamUsage, partners: Awaited<ReturnType<t
       ", ", fig(fmt.format(rain.n)), " teams), yet their teams win ", fig(pp(rain.win_rate_delta)), " vs the baseline."] : [])]
       : ["Dondozo and Tatsugiri are not in this export."],
     calc: ["lift = P(both on a team) ÷ (P(A) × P(B)); win rate vs baseline = win rate of teams with both − the " +
-      "regulation's win rate. The two numbers are computed separately and say different things."],
+      "baseline. The two numbers are computed separately and say different things."],
     interp: ["high lift picks out known archetypes (the Dondozo + Tatsugiri Commander pair, a rain setter and its " +
       "partner): it is co-occurrence, not synergy. A pair's win rate also mixes in the other four Pokémon and who " +
       "plays the team, so even a pair above the baseline is not shown to work better together."],
@@ -286,29 +307,32 @@ function partnerCard(reg: string, all: TeamUsage, partners: Awaited<ReturnType<t
   });
 }
 
-function teraCard(reg: string, tera: Awaited<ReturnType<typeof loadTeraFile>>): HTMLElement {
+function teraCard(reg: string, tera: TeraFile): HTMLElement {
   const s = teraSummary(tera, 5);
   const byTop = [...s.top].sort((a, b) => b.types[0].type_share - a.types[0].type_share);
   const most = byTop[0], least = byTop[byTop.length - 1];
   return card({
     id: "tera",
     title: "3. About one sent-out Pokémon in five Terastallizes; the type is only partly predictable",
-    meta: [["Population", [`completed ${reg} battles, all players; unit = a species sent out in a player-battle`]],
-      ["n", [fig(fmt.format(s.appearances)), " sent-out appearances of ", fig(String(s.species)),
-        ` species (each with n ≥ ${tera.min_n}); `, fig(fmt.format(s.events)), " Tera events"]],
-      ["Baseline", ["every regulation with Tera: ", fig(`${pct(EDA.teraRange.min)}–${pct(EDA.teraRange.max)}`, "eda"),
-        " per sent-out appearance"]]],
+    population: ["completed battles; unit = a species sent out in a player-battle"],
+    regulation: reg,
+    band: ALL_PLAYERS,
+    n: [fig(fmt.format(s.appearances)), " sent-out appearances of ", fig(String(s.species)),
+      ` species (each with n ≥ ${tera.min_n}); `, fig(fmt.format(s.events)), " Tera events"],
+    baseline: ["no win-rate comparison here. Reference: Tera per sent-out appearance in the ",
+      `${EDA.tera.regulations} regulations with Tera is `, fig(`${pct(EDA.tera.min)}–${pct(EDA.tera.max)}`, "eda")],
     chart: teraStack(s.top),
     how: "the five species with the most Tera events; each bar splits that species' Tera events by type (three most " +
-      "used types, then the rest).",
+      "used types, then the rest). Each species' split is in its Overview detail (links below).",
     fact: [fig(pct(s.rate)), " of sent-out appearances Terastallize. ",
       ...(most && least ? [`Among these five, ${most.species} uses ${most.types[0].tera_type} in `,
         fig(pct(most.types[0].type_share)), ` of its Tera events, while ${least.species}'s most used type `,
         `(${least.types[0].tera_type}) takes only `, fig(pct(least.types[0].type_share)), "."] : [])],
     calc: ["rate = Σ Tera events ÷ Σ sent-out appearances over the exported species (pooled, not a mean of rates); " +
       "type share = Tera events of that type ÷ the species' Tera events."],
-    interp: ["the species narrows down the Tera type, but for many species it does not settle it: the most used type " +
-      "is the choice in about half of the cases (EDA report median ", fig("57.0%", "eda"), " in this regulation)."],
+    interp: ["the species narrows down the Tera type but often does not settle it: over the species with at least " +
+      "5,000 Tera events, the most used type takes a median of ", fig(pct(EDA.tera.medianTopType), "eda"),
+      " of a species' Tera events in this regulation."],
     caution: ["win rates with and without Tera are not compared here: a Pokémon must still be on the field to " +
       "Terastallize, so the games without Tera include early faints (survivorship), and players choose when to Tera."],
     links: s.top.map((r): [string, string] => [`${r.species}'s Tera`, overviewLink(REG, "all", r.species_id)]),
@@ -322,23 +346,27 @@ function popularityCard(reg: string, all: TeamUsage): HTMLElement {
   return card({
     id: "popularity",
     title: "4. Popular Pokémon win more often in every rating band; rating does not explain it",
-    meta: [["Population", [`completed ${reg} battles, all players, unit = player-battle`]],
-      ["n", [fig(String(pts.length)), ` forms with at least ${fmt.format(MIN_TEAMS)} teams, `, fig(fmt.format(all.player_battles)),
-        " player-battles"]],
-      ["Baseline", ["win rate of all teams in the regulation: ", fig(pct(all.baseline_win_rate))]]],
+    population: ["completed battles, unit = player-battle"],
+    regulation: reg,
+    band: [...ALL_PLAYERS, " for the chart; each rating band separately (its own baseline) for the band correlations"],
+    n: ["chart: ", fig(String(pts.length)), ` forms with at least ${fmt.format(MIN_TEAMS)} teams (`, ...pbCount(all),
+      "); correlations: ", fig(String(EDA.popularity.species), "eda"), " species (all players) and ",
+      fig(String(b.species), "eda"), " species (per band)"],
+    baseline: regBaseline(all),
     chart: scatter(pts),
     how: "one dot per form: how often it is brought (left to right, log scale) against how its teams do compared " +
       "with the baseline (filled dots above it). Hover a dot for its name and n.",
     fact: ["in the more used half of these forms ", fig(`${half.upper.above} of ${half.upper.of}`),
       " win above the baseline; in the less used half ", fig(`${half.lower.above} of ${half.lower.of}`),
       ". At species level the rank correlation between usage and win rate vs baseline is ", fig(String(EDA.popularity.rho), "eda"),
-      ` over ${EDA.popularity.species} species (`, fig(`${EDA.popularity.min}–${EDA.popularity.max}`, "eda"),
-      " in the seven Scarlet/Violet regulations). Inside each rating band, against that band's baseline and on one fixed set of ",
-      `${b.species} species, it is `, fig(signed(b.below_1200), "eda"), " below 1200, ", fig(signed(b["1200_1399"]), "eda"),
+      " (", fig(`${EDA.popularity.min}–${EDA.popularity.max}`, "eda"),
+      " in the seven Scarlet/Violet regulations). Inside each rating band, against that band's baseline, it is ",
+      fig(signed(b.below_1200), "eda"), " below 1200, ", fig(signed(b["1200_1399"]), "eda"),
       " at 1200–1399, ", fig(signed(b["1400_1499"]), "eda"), " at 1400–1499 and ", fig(signed(b["1500_plus"]), "eda"), " at 1500+."],
-    calc: ["Spearman rank correlation (EDA report, species level, species with ≥ 2,000 teams; the band view uses the " +
+    calc: ["Spearman rank correlation (EDA report, species level: species with ≥ 2,000 teams; the band view uses the " +
       "species with ≥ 500 teams at 1500+ so every band counts the same species). The half split is over the forms in " +
-      "the chart, by usage share."],
+      "the chart, by usage share. The correlations are not shown in the Overview; its tables hold the usage and " +
+      "win rate of each form in each band."],
     interp: ["popularity and win rate move together at every rating, so the link is not just strong players " +
       "picking popular Pokémon. Most of it comes from rarely used Pokémon winning less; whether they are weaker or less " +
       "well played, the data cannot separate. This is correlation, not cause: bringing a popular Pokémon is not shown " +

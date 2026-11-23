@@ -14,7 +14,7 @@ export interface ShiftRow {
   shift: number;    // high - low, as a fraction (x100 = percentage points)
 }
 
-/** The only row of a species in a band, when that row is a form listed at team preview; else undefined. */
+/** species_id -> its row, for the species whose only row in the band is a form listed at team preview. */
 function soleListedRow(rows: UsageRow[]): Map<number, UsageRow> {
   const bySpecies = new Map<number, UsageRow[]>();
   for (const r of rows) bySpecies.set(r.species_id, [...(bySpecies.get(r.species_id) ?? []), r]);
