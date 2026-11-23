@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aboveBaselineByHalf, bandShift, overviewLink, popularityPoints, teraSummary } from "./insights";
+import { aboveBaselineByHalf, bandShift, overviewLink, popularityPoints, teraSummary, textOn, typeColor } from "./insights";
 import type { TeamUsage, UsageRow } from "./data";
 
 const row = (species_id: number, species: string, n: number, usage_share: number,
@@ -100,5 +100,18 @@ describe("aboveBaselineByHalf", () => {
   it("puts the middle form of an odd count in the less used half", () => {
     const out = aboveBaselineByHalf([p(0.5, 0.01), p(0.3, 0.01), p(0.1, 0.01)]);
     expect(out).toEqual({ upper: { above: 1, of: 1 }, lower: { above: 2, of: 2 } });
+  });
+});
+
+describe("typeColor / textOn", () => {
+  it("gives each Tera type its colour, case-insensitively, and null for an unknown type", () => {
+    expect(typeColor("Fire")).toBe("#EE8130");
+    expect(typeColor("fairy")).toBe("#D685AD");
+    expect(typeColor("Stellar")).not.toBeNull();
+    expect(typeColor("other")).toBeNull();
+  });
+  it("puts dark text on light colours and white text on dark ones", () => {
+    expect(textOn("#F7D02C")).toBe("#1c1d1f");   // Electric
+    expect(textOn("#6F35FC")).toBe("#ffffff");   // Dragon
   });
 });

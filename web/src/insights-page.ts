@@ -20,6 +20,8 @@ import {
   overviewLink,
   popularityPoints,
   teraSummary,
+  textOn,
+  typeColor,
   type PopularityPoint,
   type ShiftRow,
 } from "./insights";
@@ -175,24 +177,38 @@ function teraStack(rows: TeraRow[]): HTMLDivElement {
   const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
     "aria-label": "Share of each species' Tera events by type: " + rows.map((r) =>
       `${r.species} ${r.types.slice(0, 3).map((t) => `${t.tera_type} ${pct(t.type_share, 0)}`).join(", ")}`).join("; ") });
+  const seen = new Set<string>();
   rows.forEach((r, i) => {
     const y = T + i * rowH;
     root.append(svg("text", { x: L - 10, y: y + rowH / 2 + 3, "text-anchor": "end", class: "label" }, r.species));
     const parts = r.types.slice(0, 3).map((t) => [t.tera_type, t.type_share] as const);
     const rest = 1 - parts.reduce((s, [, v]) => s + v, 0);
     let at = 0;
-    [...parts, ["other", Math.max(0, rest)] as const].forEach(([name, share], k) => {
+    [...parts, ["other", Math.max(0, rest)] as const].forEach(([name, share]) => {
       if (share <= 0) return;
       const g = svg("g", {});
-      g.append(svg("rect", { x: x(at), y: y + 5, width: x(at + share) - x(at), height: rowH - 10, class: `seg seg${k}` }));
+      const color = typeColor(name);
+      if (color) seen.add(name);
+      g.append(svg("rect", { x: x(at), y: y + 5, width: x(at + share) - x(at), height: rowH - 10,
+        class: color ? "seg" : "seg seg3", ...(color ? { style: `fill: ${color}` } : {}) }));
       if (share >= 0.09) {
-        g.append(svg("text", { x: x(at) + 6, y: y + rowH / 2 + 3, class: "seg-label" }, `${name} ${pct(share, 0)}`));
+        g.append(svg("text", { x: x(at) + 6, y: y + rowH / 2 + 3, class: "seg-label",
+          ...(color ? { style: `fill: ${textOn(color)}` } : {}) }, `${name} ${pct(share, 0)}`));
       }
       root.append(tip(g, `${r.species}: ${name} ${pct(share)} of ${fmt.format(r.tera_events)} Tera events`));
       at += share;
     });
   });
-  return chartBox(root);
+  const box = chartBox(root);
+  const legend = el("div", "legend");
+  for (const name of [...seen, "other"]) {
+    const sw = el("span", "swatch");
+    const color = typeColor(name);
+    if (color) sw.style.background = color;
+    legend.append(el("span", "legend-item", sw, name === "other" ? "other types" : name));
+  }
+  box.prepend(legend);
+  return box;
 }
 
 /** Usage (log scale) against win rate minus the band baseline, one dot per form. */

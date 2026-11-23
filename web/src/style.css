@@ -147,14 +147,14 @@ sup.src { vertical-align: super; line-height: 0; }
 .chart .stem { stroke: var(--muted); stroke-width: 2; }
 .chart .ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
 .chart .bar { fill: var(--accent); }
-.chart .seg0 { fill: #2f5bd3; }
-.chart .seg1 { fill: #6f8fe3; }
-.chart .seg2 { fill: #a9bcf0; }
 .chart .seg3 { fill: var(--border); }
 .chart .seg-label { fill: #ffffff; font-size: 11px; font-weight: 600; }
-.chart .seg2 + .seg-label, .chart .seg3 + .seg-label { fill: #1c1d1f; }
+.chart .seg3 + .seg-label { fill: var(--text); }
 @media (max-width: 560px) { .insight .meta { grid-template-columns: 1fr; } }
 /* Insights charts: text 3px smaller than the Overview chart, so the plot gets the space */
 .insight .chart .axis { font-size: 8px; }
 .insight .chart .label, .insight .chart .value { font-size: 9px; }
 .insight .chart .seg-label { font-size: 8px; }
+.insight .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.75rem; color: var(--muted); margin: 0 0 6px 4px; }
+.insight .legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.insight .swatch { width: 10px; height: 10px; border-radius: 2px; background: var(--border); display: inline-block; }

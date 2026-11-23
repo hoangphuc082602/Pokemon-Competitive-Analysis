@@ -82,3 +82,26 @@ export function aboveBaselineByHalf(points: PopularityPoint[]): { upper: { above
   const count = (xs: PopularityPoint[]) => ({ above: xs.filter((x) => x.delta > 0).length, of: xs.length });
   return { upper: count(sorted.slice(0, cut)), lower: count(sorted.slice(cut)) };
 }
+
+/** Conventional colour of each type (as used by fan sites); the Tera chart colours segments with it. */
+const TYPE_COLORS: Record<string, string> = {
+  normal: "#A8A77A", fire: "#EE8130", water: "#6390F0", electric: "#F7D02C", grass: "#7AC74C", ice: "#96D9D6",
+  fighting: "#C22E28", poison: "#A33EA1", ground: "#E2BF65", flying: "#A98FF3", psychic: "#F95587", bug: "#A6B91A",
+  rock: "#B6A136", ghost: "#735797", dragon: "#6F35FC", dark: "#705746", steel: "#B7B7CE", fairy: "#D685AD",
+  stellar: "#40B5A5",
+};
+
+export function typeColor(type: string): string | null {
+  return TYPE_COLORS[type.toLowerCase()] ?? null;
+}
+
+/** Text colour (dark or white) with the higher WCAG contrast ratio on a #RRGGBB background. */
+export function textOn(hex: string): string {
+  const lin = (i: number) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = 0.2126 * lin(1) + 0.7152 * lin(3) + 0.0722 * lin(5);
+  const DARK_LUM = 0.0117;   // relative luminance of #1c1d1f
+  return (lum + 0.05) / (DARK_LUM + 0.05) >= 1.05 / (lum + 0.05) ? "#1c1d1f" : "#ffffff";
+}
