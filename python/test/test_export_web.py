@@ -132,7 +132,7 @@ def test_exported_files_hold_only_allow_listed_keys(exported):
 
 def test_manifest_counts_and_sizes_match_the_files(exported):
     out, manifest = exported
-    assert manifest["schema_version"] == 3 and manifest["min_n"] == 100
+    assert manifest["schema_version"] == 4 and manifest["min_n"] == 100
     on_disk = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     assert on_disk == manifest
     for f in manifest["datasets"]["team_usage"]:
@@ -338,3 +338,197 @@ def test_csv_pair_tables_give_the_same_export(tmp_path):
     assert a == b
     for f in a["datasets"]["partners"] + a["datasets"]["matchups"]:
         assert (tmp_path / "a" / f["path"]).read_text() == (tmp_path / "b" / f["path"]).read_text()
+
+
+MONTHLY_COLS = ["regulation", "month", "rating_band", "species", "species_id", "appearances", "wins", "sent_out",
+                "player_battles", "tail", "usage_share", "win_rate", "win_ci_low", "win_ci_high", "sent_out_rate"]
+
+
+def _write_monthly(agg, rows=None):
+    """Synthetic pokemon_usage_monthly as written by usage_trend (species level, 'all' rows given, tail per month)."""
+    rows = rows if rows is not None else [
+        # month, band, species, species_id, appearances, wins, player_battles, tail, ci_low, ci_high
+        ("2024-01", "all", "Incineroar", 727, 400, 200, 1000, False, 0.45, 0.55),
+        ("2024-01", "all", "Urshifu", 892, 99, 50, 1000, False, 0.4, 0.6),         # n < 100: point dropped
+        ("2024-02", "all", "Incineroar", 727, 300, 180, 800, False, 0.54, 0.65),
+        ("2024-02", "all", "Urshifu", 892, 200, 90, 800, False, 0.38, 0.52),
+        ("2024-03", "all", "Incineroar", 727, 100, 40, 40, True, 0.31, 0.5),          # tail month: kept and flagged
+        ("unknown", "all", "Incineroar", 727, 150, 75, 200, False, 0.42, 0.58),       # no upload time: not a month
+        ("2024-01", "1500_plus", "Incineroar", 727, 120, 72, 300, False, 0.51, 0.68),
+        ("2024-01", "1500_plus", "Urshifu", 892, 50, 20, 300, False, 0.28, 0.54),
+    ]
+    df = pd.DataFrame(rows, columns=["month", "rating_band", "species", "species_id", "appearances", "wins",
+                                     "player_battles", "tail", "win_ci_low", "win_ci_high"]).assign(regulation=REG)
+    df["sent_out"] = df["appearances"]
+    df["usage_share"] = df["appearances"] / df["player_battles"]
+    df["win_rate"] = df["wins"] / df["appearances"]
+    df["sent_out_rate"] = 1.0
+    df[MONTHLY_COLS].to_parquet(agg / "pokemon_usage_monthly.parquet", index=False)
+    return agg
+
+
+@pytest.fixture
+def exported_trend(tmp_path):
+    out = tmp_path / "web"
+    manifest = export(_write_monthly(_write(tmp_path)), out, batch_size=2)
+    return out, manifest
+
+
+def _trend_file(out, manifest, band):
+    entry = next(f for f in manifest["datasets"]["trend"] if f["rating_band"] == band)
+    return json.loads((out / entry["path"]).read_text(encoding="utf-8"))
+
+
+def _points(data, species):
+    rows = {r["species"]: r for r in data["rows"]}
+    return {p["month"]: p for p in rows[species]["points"]} if species in rows else {}
+
+
+def test_trend_months_are_listed_with_their_tail_flag_and_unknown_month_dropped(exported_trend):
+    data = _trend_file(*exported_trend, "all")
+    assert data["months"] == [{"month": "2024-01", "player_battles": 1000, "tail": False},
+                              {"month": "2024-02", "player_battles": 800, "tail": False},
+                              {"month": "2024-03", "player_battles": 40, "tail": True}]
+    assert set(_points(data, "Incineroar")) == {"2024-01", "2024-02", "2024-03"}      # tail point kept in the export
+
+
+def test_trend_points_below_100_teams_are_dropped(exported_trend):
+    data = _trend_file(*exported_trend, "all")
+    assert set(_points(data, "Urshifu")) == {"2024-02"}                                # 2024-01: 99 teams
+    p = _points(data, "Urshifu")["2024-02"]
+    assert (p["n"], p["usage_share"], p["win_rate"], p["win_ci_low"], p["win_ci_high"]) == (200, 0.25, 0.45, 0.38, 0.52)
+
+
+def test_trend_bands_are_separate_files_and_all_is_taken_as_given(exported_trend):
+    out, manifest = exported_trend
+    assert [(f["rating_band"], f["path"]) for f in manifest["datasets"]["trend"]] == \
+           [("all", f"trend/{REG}__all.json"), ("1500_plus", f"trend/{REG}__1500_plus.json")]
+    top = _trend_file(out, manifest, "1500_plus")
+    assert top["months"] == [{"month": "2024-01", "player_battles": 300, "tail": False}]
+    assert _points(top, "Incineroar")["2024-01"]["n"] == 120 and _points(top, "Urshifu") == {}
+    assert _points(_trend_file(out, manifest, "all"), "Incineroar")["2024-01"]["n"] == 400    # not 400 + 120
+
+
+def test_trend_files_hold_only_allow_listed_keys(exported_trend):
+    out, manifest = exported_trend
+    for f in manifest["datasets"]["trend"]:
+        data = json.loads((out / f["path"]).read_text(encoding="utf-8"))
+        assert list(data) == ["regulation", "rating_band", "min_n", "months", "rows"]
+        assert f["rows"] == len(data["rows"]) and f["bytes"] == (out / f["path"]).stat().st_size
+        for r in data["rows"]:
+            assert list(r) == ["species_id", "species", "points"]
+            assert all(list(p) == ["month", "n", "usage_share", "win_rate", "win_ci_low", "win_ci_high"] for p in r["points"])
+
+
+def test_a_monthly_table_without_rating_band_is_refused(tmp_path):
+    agg = _write_monthly(_write(tmp_path))
+    df = pd.read_parquet(agg / "pokemon_usage_monthly.parquet")
+    df[df["rating_band"] == "all"].drop(columns="rating_band").to_parquet(agg / "pokemon_usage_monthly.parquet", index=False)
+    with pytest.raises(ExportError, match="usage_trend"):
+        export(agg, tmp_path / "web")
+
+
+def test_a_missing_monthly_table_gives_an_empty_trend_dataset(tmp_path):
+    assert export(_write(tmp_path), tmp_path / "web")["datasets"]["trend"] == []
+
+
+TERA_SUMMARY_COLS = ["regulation", "rating_band", "species", "species_id", "sent_out", "sent_out_wins", "tera_events",
+                     "tera_wins", "tera_rate", "tera_rate_ci_low", "tera_rate_ci_high", "win_rate_tera", "win_rate_no_tera"]
+TERA_TYPE_COLS = ["regulation", "species_id", "species", "tera_type", "events", "wins", "rating_band", "tera_events",
+                  "tera_wins", "type_share"]
+
+
+def _write_tera(agg, summary_rows=None):
+    """Synthetic pokemon_tera_summary / pokemon_tera_types as written by tera_stats ('all' rows given)."""
+    summary = summary_rows if summary_rows is not None else [
+        # band, species, id, sent_out, sent_out_wins, tera_events, tera_wins, rate, lo, hi, win_tera, win_no_tera
+        ("all", "Incineroar", 727, 400, 200, 150, 90, 0.375, 0.33, 0.42, 0.6, 0.44),
+        ("all", "Urshifu", 892, 250, 120, 60, 30, 0.24, 0.19, 0.3, 0.5, 0.47368),          # 60 Tera: win rate hidden
+        ("all", "Rare", 1, 99, 50, 99, 50, 1.0, 0.96, 1.0, 0.50505, None),                 # sent out 99 < 100
+        ("all", "Calyrex", 898, 150, 80, 0, 0, 0.0, 0.0, 0.02, None, 0.53333),             # never Terastallized
+        ("1500_plus", "Incineroar", 727, 120, 60, 100, 55, 0.83333, 0.75, 0.89, 0.55, 0.25),
+    ]
+    s = pd.DataFrame(summary, columns=["rating_band", "species", "species_id", "sent_out", "sent_out_wins", "tera_events",
+                                       "tera_wins", "tera_rate", "tera_rate_ci_low", "tera_rate_ci_high",
+                                       "win_rate_tera", "win_rate_no_tera"]).assign(regulation=REG)
+    types = [  # band, species, id, type, events, tera_events, share
+        ("all", "Incineroar", 727, "Ghost", 120, 150, 0.8), ("all", "Incineroar", 727, "Grass", 30, 150, 0.2),
+        ("all", "Urshifu", 892, "Water", 60, 60, 1.0),
+        ("1500_plus", "Incineroar", 727, "Ghost", 100, 100, 1.0),
+    ]
+    t = pd.DataFrame(types, columns=["rating_band", "species", "species_id", "tera_type", "events", "tera_events",
+                                     "type_share"]).assign(regulation=REG, wins=1, tera_wins=1)
+    s[TERA_SUMMARY_COLS].to_parquet(agg / "pokemon_tera_summary.parquet", index=False)
+    t[TERA_TYPE_COLS].to_parquet(agg / "pokemon_tera_types.parquet", index=False)
+    return agg
+
+
+@pytest.fixture
+def exported_tera(tmp_path):
+    out = tmp_path / "web"
+    manifest = export(_write_tera(_write(tmp_path)), out, batch_size=2)
+    return out, manifest
+
+
+def _tera(out, manifest, band):
+    entry = next(f for f in manifest["datasets"]["tera"] if f["rating_band"] == band)
+    return {r["species"]: r for r in json.loads((out / entry["path"]).read_text(encoding="utf-8"))["rows"]}
+
+
+def test_tera_rows_below_100_sent_out_are_dropped(exported_tera):
+    assert set(_tera(*exported_tera, "all")) == {"Incineroar", "Urshifu", "Calyrex"}     # Rare: 99 sent out
+
+
+def test_tera_rate_and_types_of_a_species(exported_tera):
+    inc = _tera(*exported_tera, "all")["Incineroar"]
+    assert {k: inc[k] for k in ("n", "tera_events", "tera_rate", "tera_rate_ci_low", "tera_rate_ci_high")} == \
+           {"n": 400, "tera_events": 150, "tera_rate": 0.375, "tera_rate_ci_low": 0.33, "tera_rate_ci_high": 0.42}
+    assert inc["types"] == [{"tera_type": "Ghost", "events": 120, "type_share": 0.8},
+                            {"tera_type": "Grass", "events": 30, "type_share": 0.2}]       # most used first
+
+
+def test_tera_win_rates_and_types_with_fewer_than_100_games_are_hidden(exported_tera):
+    rows = _tera(*exported_tera, "all")
+    urs, cal = rows["Urshifu"], rows["Calyrex"]
+    assert (urs["win_rate_tera"], urs["win_rate_no_tera"], urs["types"]) == (None, 0.47368, [])   # 60 Tera games
+    assert (cal["tera_events"], cal["win_rate_tera"], cal["win_rate_no_tera"]) == (0, None, 0.53333)
+    inc = _tera(*exported_tera, "1500_plus")["Incineroar"]
+    assert (inc["win_rate_tera"], inc["win_rate_no_tera"]) == (0.55, None)                 # 20 games without Tera
+
+
+def test_tera_bands_are_separate_files(exported_tera):
+    out, manifest = exported_tera
+    assert [(f["rating_band"], f["path"]) for f in manifest["datasets"]["tera"]] == \
+           [("all", f"tera/{REG}__all.json"), ("1500_plus", f"tera/{REG}__1500_plus.json")]
+    assert _tera(out, manifest, "1500_plus")["Incineroar"]["types"] == [{"tera_type": "Ghost", "events": 100, "type_share": 1.0}]
+
+
+def test_tera_files_hold_only_allow_listed_keys(exported_tera):
+    out, manifest = exported_tera
+    for f in manifest["datasets"]["tera"]:
+        data = json.loads((out / f["path"]).read_text(encoding="utf-8"))
+        assert list(data) == ["regulation", "rating_band", "min_n", "rows"]
+        assert f["rows"] == len(data["rows"]) and f["bytes"] == (out / f["path"]).stat().st_size
+        for r in data["rows"]:
+            assert list(r) == ["species_id", "species", "n", "tera_events", "tera_rate", "tera_rate_ci_low",
+                               "tera_rate_ci_high", "win_rate_tera", "win_rate_no_tera", "types"]
+            assert all(list(t) == ["tera_type", "events", "type_share"] for t in r["types"])
+
+
+@pytest.mark.parametrize("table", ["pokemon_tera_summary", "pokemon_tera_types"])
+def test_a_forbidden_column_in_a_tera_table_makes_the_export_fail_without_writing(tmp_path, table):
+    agg, out = _write_tera(_write(tmp_path)), tmp_path / "web"
+    pd.read_parquet(agg / f"{table}.parquet").assign(battle_id="b1").to_parquet(agg / f"{table}.parquet", index=False)
+    with pytest.raises(ExportError, match="battle_id"):
+        export(agg, out)
+    assert not out.exists()
+
+
+def test_missing_tera_and_trend_tables_remove_stale_files(tmp_path):
+    out = tmp_path / "web"
+    for d in ("tera", "trend"):
+        (out / d).mkdir(parents=True)
+        (out / d / f"{REG}__all.json").write_text("{}", encoding="utf-8")
+    manifest = export(_write(tmp_path), out)
+    assert manifest["datasets"]["tera"] == [] and manifest["schema_version"] == 4
+    assert not any((out / d / f"{REG}__all.json").exists() for d in ("tera", "trend"))
