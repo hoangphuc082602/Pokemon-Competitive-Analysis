@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Level-50 damage calculator running the project's Python engine in the browser with Pyodide." />
+    <title>VGC Damage Calculator</title>
+  </head>
+  <body>
+    <header class="wrap">
+      <nav class="site-nav" aria-label="Pages"><a href="./">Meta Overview</a> <a href="./insights.html">Insights</a> <a href="./calc.html" aria-current="page">Damage calc</a></nav>
+      <h1>Damage Calculator</h1>
+      <p class="lede">
+        One attack, level 50: damage range, share of the defender's HP and a KO estimate. The numbers come from the
+        project's own Python damage engine (<code>python/calculations/</code>, tested with pytest), run in your browser
+        with <a href="https://pyodide.org/">Pyodide</a>. Game data (base stats, typing, abilities, learnsets, natures, type
+        chart) is from PokéAPI, limited to the Pokémon in the Meta Overview.
+      </p>
+      <p class="notice" role="note">
+        <strong>Not modelled yet:</strong> spread-move reduction, critical hits, weather and terrain, burn, item and
+        ability damage modifiers, Tera STAB (Tera Blast stays a Normal move), stat stages (boosts / drops), multi-hit and variable-power moves
+        (listed power, one hit). Learnsets are Scarlet / Violet's (PokéAPI); Pokémon not in Scarlet / Violet list every move. Modelled: base damage, STAB, type chart, the 16 damage rolls, ability immunities / resistances
+        (e.g. Levitate, Flash Fire, Thick Fat), -ate abilities, Normalize, Scrappy and Mold Breaker.
+      </p>
+      <p id="engine-status" class="context" role="status" aria-live="polite">Loading the Python engine…</p>
+    </header>
+
+    <main class="wrap">
+      <form id="calc" class="calc" onsubmit="return false" hidden>
+        <fieldset id="attacker" class="side">
+          <legend>Attacker</legend>
+        </fieldset>
+        <fieldset id="defender" class="side">
+          <legend>Defender</legend>
+        </fieldset>
+      </form>
+
+      <section id="result" aria-labelledby="result-title" hidden>
+        <h2 id="result-title">Result</h2>
+        <p id="result-main" class="result-main" aria-live="polite"></p>
+        <p id="result-detail" class="context"></p>
+        <div class="table-scroll">
+          <table id="result-stats">
+            <thead>
+              <tr><th scope="col">Level-50 stats</th><th scope="col" class="num">HP</th><th scope="col" class="num">Atk</th>
+                <th scope="col" class="num">Def</th><th scope="col" class="num">SpA</th><th scope="col" class="num">SpD</th>
+                <th scope="col" class="num">Spe</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="note">
+          Damage range = the lowest and highest of the 16 random rolls (85–100%). KO chances count the rolls of
+          <strong>one hit</strong>: “2HKO” means one hit takes at least half the HP, as the engine counts it, not the sum of
+          two different rolls. This is a calculation from game mechanics, not observed battle data.
+        </p>
+      </section>
+    </main>
+
+    <footer class="wrap">
+      <p>Game data from <a href="https://pokeapi.co/">PokéAPI</a> (<a href="data/LICENSE-POKEAPI.txt">BSD-3-Clause</a>,
+        © Paul Hallett and PokéAPI contributors). Python runtime: <a href="https://pyodide.org/">Pyodide</a> (MPL-2.0),
+        loaded from the jsDelivr CDN on this page only.</p>
+      <p>Non-commercial fan project. Not affiliated with or endorsed by Pokémon Showdown, Smogon, PokéAPI, Nintendo,
+        Creatures Inc., GAME FREAK inc. or The Pokémon Company. Pokémon and Pokémon character names are trademarks of
+        Nintendo.</p>
+    </footer>
+    <script type="module" src="/src/calc-page.ts"></script>
+  </body>
+</html>
