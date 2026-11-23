@@ -11,6 +11,8 @@ import {
   loadTrendFile,
   pageList,
   paginate,
+  regulationLabel,
+  unratedNote,
   parseManifest,
   speciesEntry,
   teraEntry,
@@ -28,8 +30,8 @@ const manifest = (over: Record<string, unknown> = {}) => ({
   population: "completed VGC battles",
   totals: { battles: 500, player_battles: 1000 },
   regulations: [
-    { id: "regA", battles: 500, player_battles: 1000, bands: ["all", "1500_plus"] },
-    { id: "regB", battles: null, player_battles: null, bands: ["all"] },
+    { id: "regA", label: "Reg A 2024", battles: 500, player_battles: 1000, unrated_share: 0.125, bands: ["all", "1500_plus", "unknown"] },
+    { id: "regB", battles: null, player_battles: null, unrated_share: null, bands: ["all"] },
   ],
   bands: ["all", "1500_plus"],
   datasets: {
@@ -148,6 +150,30 @@ describe("paginate", () => {
   });
 });
 
+describe("unrated notice (BR-11)", () => {
+  const m = parseManifest(manifest()) as Manifest;
+
+  it("tells how many player-battles a rating band leaves out, only on rating bands", () => {
+    expect(unratedNote(m, "regA", "1500_plus")).toEqual({ share: 0.125, regulation: "Reg A 2024" });
+    expect(unratedNote(m, "regA", "all")).toBeNull();        // 'all' includes them
+    expect(unratedNote(m, "regA", "unknown")).toBeNull();    // that band is them
+  });
+
+  it("says nothing when the share was not reported", () => {
+    expect(unratedNote(m, "regB", "1500_plus")).toBeNull();
+  });
+});
+
+describe("regulation labels", () => {
+  const m = parseManifest(manifest()) as Manifest;
+
+  it("shows the dim_regulation label of a regulation, and the id when there is none", () => {
+    expect(regulationLabel(m, "regA")).toBe("Reg A 2024");
+    expect(regulationLabel(m, "regB")).toBe("regB");        // label missing: never guessed in the browser
+    expect(regulationLabel(m, "nope")).toBe("nope");
+  });
+});
+
 describe("form rows", () => {
   const forms = [
     row("Calyrex", 2, { form: "calyrex-shadow", label: "Calyrex-Shadow" }),
@@ -171,19 +197,27 @@ describe("URL filters", () => {
   const m = parseManifest(manifest()) as Manifest;
 
   it("round-trips regulation, band and search", () => {
-    const qs = writeFilters({ regulation: "regA", band: "1500_plus", query: "inc", species: null });
-    expect(readFilters(qs, m)).toEqual({ regulation: "regA", band: "1500_plus", query: "inc", species: null });
+    const qs = writeFilters({ regulation: "regA", band: "1500_plus", query: "inc", species: null, page: 1 });
+    expect(readFilters(qs, m)).toEqual({ regulation: "regA", band: "1500_plus", query: "inc", species: null, page: 1 });
   });
 
   it("round-trips the selected species so a species detail view is linkable", () => {
-    const qs = writeFilters({ regulation: "regA", band: "all", query: "", species: 727 });
+    const qs = writeFilters({ regulation: "regA", band: "all", query: "", species: 727, page: 1 });
     expect(qs).toBe("?reg=regA&band=all&sp=727");
     expect(readFilters(qs, m).species).toBe(727);
   });
 
   it("falls back to valid defaults for unknown values", () => {
-    expect(readFilters("?reg=nope&band=nope&sp=x", m)).toEqual({ regulation: "regA", band: "all", query: "", species: null });
-    expect(readFilters("?reg=regB&band=1500_plus", m)).toEqual({ regulation: "regB", band: "all", query: "", species: null });
+    expect(readFilters("?reg=nope&band=nope&sp=x", m)).toEqual({ regulation: "regA", band: "all", query: "", species: null, page: 1 });
+    expect(readFilters("?reg=regB&band=1500_plus", m)).toEqual({ regulation: "regB", band: "all", query: "", species: null, page: 1 });
+  });
+
+  it("round-trips the team usage page so a refresh keeps the page being read", () => {
+    const qs = writeFilters({ regulation: "regA", band: "all", query: "", species: null, page: 4 });
+    expect(qs).toBe("?reg=regA&band=all&p=4");
+    expect(readFilters(qs, m).page).toBe(4);
+    expect(writeFilters({ regulation: "regA", band: "all", query: "", species: null, page: 1 })).toBe("?reg=regA&band=all");
+    for (const bad of ["0", "-2", "x", "1.5"]) expect(readFilters(`?p=${bad}`, m).page).toBe(1);
   });
 });
 
@@ -221,14 +255,14 @@ describe("partners and matchups", () => {
 describe("monthly trend", () => {
   const m = parseManifest(manifest()) as Manifest;
   const point = (month: string, usage_share: number) =>
-    ({ month, n: 150, usage_share, win_rate: 0.5, win_ci_low: 0.4, win_ci_high: 0.6 });
+    ({ month, n: 150, usage_share, win_rate: 0.5, win_ci_low: 0.4, win_ci_high: 0.6, win_rate_delta: 0 });
   const file = {
     regulation: "regA", rating_band: "1500_plus", min_n: 100,
     months: [
-      { month: "2024-01", player_battles: 1000, tail: false },
-      { month: "2024-02", player_battles: 900, tail: false },
-      { month: "2024-03", player_battles: 800, tail: false },
-      { month: "2024-04", player_battles: 30, tail: true },
+      { month: "2024-01", player_battles: 1000, tail: false, baseline_win_rate: 0.5 },
+      { month: "2024-02", player_battles: 900, tail: false, baseline_win_rate: 0.5 },
+      { month: "2024-03", player_battles: 800, tail: false, baseline_win_rate: 0.5 },
+      { month: "2024-04", player_battles: 30, tail: true, baseline_win_rate: 0.5 },
     ],
     rows: [{ species_id: 727, species: "Incineroar",
              points: [point("2024-01", 0.4), point("2024-03", 0.3), point("2024-04", 0.1)] }],   // 2024-02: n < 100
@@ -263,6 +297,8 @@ describe("monthly trend", () => {
     const c = chartPoints(thin, 727);
     expect(c.monthBattles).toEqual({ "2024-01": 1000, "2024-02": 900, "2024-03": 40 });
     expect(c.thinMonths).toEqual(["2024-03"]);   // 40 < 5% of the band's busiest month (1000)
+    const shifted = { ...file, months: file.months.map((x) => ({ ...x, baseline_win_rate: x.month === "2024-02" ? 0.47 : 0.5 })) };
+    expect(chartPoints(shifted, 727).monthBaseline).toEqual({ "2024-01": 0.5, "2024-02": 0.47, "2024-03": 0.5 });
     expect(chartPoints(file, 727).thinMonths).toEqual([]);
   });
 

@@ -62,6 +62,9 @@ Notes:
 - Months below 5% of the busiest month of their regulation are flagged `tail`: kept in the tables, excluded from charts, because
   the population there is different (the format is ending; e.g. Incineroar 35% -> 17% -> 7% in the last two months of Reg F 2026).
 - The month is the upload month of the replay, not the day the battle was played.
+- Monthly win rates are compared with the baseline of the same regulation, month and rating band (all species rows of that
+  month, before the n filter, as for the regulation baseline). Tera win rates with and without Tera are each compared with the
+  regulation x band baseline of team usage; this places each against the band, it does not make them comparable to each other.
 - Matchups are about **teams** containing the species, not the species on the field: the other Pokémon, the leads and the choice of
   four are mixed in. The table is antisymmetric in band `all`; per rating band the band is that of A's player.
 - `expected_win_rate` is the log5 combination of the two teams' overall win rates and `win_rate_vs_expected` the remainder: teams with
@@ -72,7 +75,8 @@ Notes:
 ## 4. Rating filter
 
 - `battle_players.rating_before` is the player's ladder rating before the battle. It is NULL for part of the data;
-  rating-filtered metrics exclude NULL and must report the excluded share.
+  rating-filtered metrics exclude NULL and must report the excluded share (`usage_trend` prints it; the web manifest
+  carries `unrated_share` per regulation and the page shows it as a notice on every rating band).
 - `battle.rating` is a battle-level value copied from the crawl when the log has none; its exact meaning is not yet confirmed.
 - Rating bands are per **player** (each side uses its own `rating_before`): `below_1200`, `1200_1399`, `1400_1499`, `1500_plus`
   and `unknown` (NULL rating, 8.5% of VGC player-battles). `all` includes `unknown`. Band edges follow the observed

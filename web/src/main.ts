@@ -4,6 +4,8 @@ import {
   chartPoints,
   pageList,
   paginate,
+  regulationLabel,
+  unratedNote,
   type ChartSeries,
   filterRows,
   formNote,
@@ -44,6 +46,7 @@ const regSel = $<HTMLSelectElement>("regulation");
 const bandSel = $<HTMLSelectElement>("band");
 const search = $<HTMLInputElement>("search");
 const context = $<HTMLParagraphElement>("context");
+const unratedEl = $<HTMLParagraphElement>("unrated-note");
 const tbody = document.querySelector<HTMLTableSectionElement>("#usage tbody")!;
 const pagePrev = $<HTMLButtonElement>("page-prev");
 const pageNext = $<HTMLButtonElement>("page-next");
@@ -65,6 +68,17 @@ const fmt = new Intl.NumberFormat("en");
 const pct = (v: number, d = 1) => `${(100 * v).toFixed(d)}%`;
 const pp = (v: number) => `${v >= 0 ? "+" : "−"}${Math.abs(100 * v).toFixed(1)} pp`;
 const bandName = (b: string) => BAND_LABEL[b] ?? b;
+/** Regulation display label (dim_regulation.label from the manifest); set once the manifest is loaded. */
+let regName: (id: string) => string = (id) => id;
+
+/** Fill an element with text where the [text] pieces are highlighted (class `hl`, or the given class). */
+type Piece = string | [string] | [string, string];
+function rich(el: HTMLElement, pieces: Piece[]) {
+  el.replaceChildren(...pieces.map((p) => {
+    if (typeof p === "string") return p;
+    return Object.assign(document.createElement("strong"), { className: p[1] ?? "hl", textContent: p[0] });
+  }));
+}
 
 async function fetchJson(url: string): Promise<unknown> {
   const res = await fetch(url);
@@ -125,12 +139,16 @@ function nameCell(r: UsageRow): HTMLTableCellElement {
 }
 
 const PAGE_SIZE = 15;
-let usagePage = 1;   // reset to 1 when the regulation, band or search changes
+/** Keep the address bar in step with the filters (page included), so a refresh shows the same view. */
+const syncUrl = () => history.replaceState(null, "", writeFilters(filters) + location.hash);
 
 function renderTable(data: TeamUsage, query: string) {
   const all = filterRows(data.rows, query);
-  const pg = paginate(all, usagePage, PAGE_SIZE);
-  usagePage = pg.page;
+  const pg = paginate(all, filters.page, PAGE_SIZE);
+  if (pg.page !== filters.page) {      // a page past the end (e.g. from an old link) is clamped
+    filters = { ...filters, page: pg.page };
+    syncUrl();
+  }
   pageInfo.replaceChildren();
   if (all.length) {
     const b = (t: string) => Object.assign(document.createElement("strong"), { textContent: t });
@@ -144,7 +162,8 @@ function renderTable(data: TeamUsage, query: string) {
       textContent: String(p) });
     if (p === pg.page) btn.setAttribute("aria-current", "page");
     btn.addEventListener("click", () => {
-      usagePage = p;
+      filters = { ...filters, page: p };
+      syncUrl();
       renderTable(data, query);
     });
     return btn;
@@ -169,10 +188,11 @@ function renderTable(data: TeamUsage, query: string) {
 }
 
 function setContext(data: TeamUsage) {
-  context.textContent =
-    `Population: completed ${data.regulation} battles, rating band “${bandName(data.rating_band)}” — ` +
-    `${fmt.format(data.player_battles)} player-battles. Band baseline win rate ${pct(data.baseline_win_rate)}. ` +
-    `${data.rows.length} forms with n ≥ ${data.min_n} shown (smaller samples hidden).`;
+  rich(context, [
+    "Population: completed ", [regName(data.regulation)], " battles, rating band “", [bandName(data.rating_band)], "” — ",
+    [fmt.format(data.player_battles)], " player-battles. Band baseline win rate ", [pct(data.baseline_win_rate)], ". ",
+    [String(data.rows.length)], " forms with n ≥ ", [String(data.min_n)], " shown (smaller samples hidden).",
+  ]);
 }
 
 /** CSS class of a delta: coloured only when the 95% interval excludes the reference. */
@@ -286,6 +306,8 @@ function drawTrend(c: ChartSeries, band: string) {
     const rows: [string, string, string][] = [
       ["Usage", pct(p.usage_share), `${fmt.format(p.n)} of ${battles === undefined ? "?" : fmt.format(battles)} teams`],
       ["Win rate", pct(p.win_rate), `95% CI ${pct(p.win_ci_low)}–${pct(p.win_ci_high)}`],
+      ["vs band", pp(p.win_rate_delta),
+        c.monthBaseline[m] === undefined ? "" : `band baseline ${pct(c.monthBaseline[m])}`],
     ];
     const head = `${m} · ${band}`;
     const warn = thin.has(m) ? "Few battles in this band this month (< 5% of its busiest month): read with care." : "";
@@ -327,7 +349,7 @@ function renderTrend(file: TrendFile | null, id: number) {
   }
   const c = chartPoints(file, id);
   trendContext.textContent = c.points.length
-    ? `Share of teams per upload month, completed ${file.regulation} battles, rating band “${bandName(file.rating_band)}”; ${c.points.length} of ${c.months.length} months with n ≥ ${file.min_n} teams.`
+    ? `Share of teams per upload month, completed ${regName(file.regulation)} battles, rating band “${bandName(file.rating_band)}”; ${c.points.length} of ${c.months.length} months with n ≥ ${file.min_n} teams.`
     : `No month reaches n ≥ ${file.min_n} teams for this species in this band.`;
   if (c.points.length) drawTrend(c, bandName(file.rating_band));
   const notes: string[] = [];
@@ -348,10 +370,11 @@ function renderTrend(file: TrendFile | null, id: number) {
     const tr = document.createElement("tr");
     tr.append(cell(tail.has(p.month) ? `${p.month} (tail)` : p.month, tail.has(p.month) ? "muted" : undefined),
       cell(fmt.format(p.n), "num"), cell(pct(p.usage_share), "num"), cell(pct(p.win_rate), "num"),
-      cell(`${pct(p.win_ci_low)}–${pct(p.win_ci_high)}`, "num muted"));
+      cell(`${pct(p.win_ci_low)}–${pct(p.win_ci_high)}`, "num muted"),
+      cell(pp(p.win_rate_delta), `num ${ciClass(p.win_ci_low, p.win_ci_high, p.win_rate - p.win_rate_delta)}`));
     return tr;
   }));
-  if (!rows.length) emptyRow(trendBody, `No month with n ≥ ${file.min_n} teams.`, 5);
+  if (!rows.length) emptyRow(trendBody, `No month with n ≥ ${file.min_n} teams.`, 6);
 }
 
 function renderTera(file: TeraFile | null, id: number) {
@@ -364,12 +387,16 @@ function renderTera(file: TeraFile | null, id: number) {
     teraContext.textContent = `Fewer than ${file.min_n} sent-out appearances in this band: Tera hidden.`;
     return emptyRow(teraBody, "No data.", 3);
   }
-  const wr = (v: number | null) => (v === null ? `n < ${file.min_n}, hidden` : pct(v));
+  const wr = (v: number | null, d: number | null) =>
+    v === null ? `n < ${file.min_n}, hidden` : d === null ? pct(v) : `${pct(v)} (${pp(d)} vs band)`;
+  const base = file.baseline_win_rate === null ? "" : ` Band baseline win rate ${pct(file.baseline_win_rate)}.`;
   teraContext.textContent =
-    `${file.regulation}, rating band “${bandName(file.rating_band)}”: Terastallized in ${pct(t.tera_rate)} of ` +
+    `${regName(file.regulation)}, rating band “${bandName(file.rating_band)}”: Terastallized in ${pct(t.tera_rate)} of ` +
     `${fmt.format(t.n)} sent-out appearances ` +
     `(95% CI ${pct(t.tera_rate_ci_low)}–${pct(t.tera_rate_ci_high)}; ${fmt.format(t.tera_events)} Tera events). ` +
-    `Win rate with Tera ${wr(t.win_rate_tera)}, without ${wr(t.win_rate_no_tera)} — not comparable, see note.`;
+    `Win rate with Tera ${wr(t.win_rate_tera, t.win_rate_tera_delta)}, ` +
+    `without ${wr(t.win_rate_no_tera, t.win_rate_no_tera_delta)} — each against the band, not against each other ` +
+    `(see note).${base}`;
   if (!t.types.length) return emptyRow(teraBody, `Type split hidden: fewer than ${file.min_n} Tera events.`, 3);
   teraBody.replaceChildren(...t.types.map((x) => {
     const tr = document.createElement("tr");
@@ -393,6 +420,7 @@ async function start() {
     `Snapshot ${manifest.snapshot_date}: ${fmt.format(manifest.totals.battles)} completed VGC battles ` +
     `(${fmt.format(manifest.totals.player_battles)} player-battles) across ${manifest.regulations.length} regulations.`;
 
+  regName = (id) => regulationLabel(manifest, id);
   filters = readFilters(location.search, manifest);
   let current: TeamUsage | null = null;
   type Detail = { partners: PairFile | null; matchups: PairFile | null; trend: TrendFile | null; tera: TeraFile | null };
@@ -400,7 +428,7 @@ async function start() {
   let pairs: Detail = noDetail;
   let token = 0;
 
-  const sync = () => history.replaceState(null, "", writeFilters(filters) + location.hash);
+  const sync = syncUrl;
   const orNull = <T,>(p: Promise<T>) => p.catch((e: unknown) => {
     if (e instanceof DataError && e.code === "not-found") return null;   // not exported for this band
     throw e;
@@ -420,7 +448,7 @@ async function start() {
     if (id !== null && !seen.has(id)) speciesSel.add(new Option(`${name ?? `#${id}`} (no data)`, String(id), false, true));
     if (!pairs.partners && !pairs.matchups && !pairs.trend && !pairs.tera) {
       detailBody.hidden = true;
-      detailContext.textContent = `No species detail exported for ${filters.regulation} / ${bandName(filters.band)}.`;
+      detailContext.textContent = `No species detail exported for ${regName(filters.regulation)} /${bandName(filters.band)}.`;
       return;
     }
     if (id === null) {
@@ -430,7 +458,7 @@ async function start() {
     }
     detailBody.hidden = false;
     detailContext.textContent =
-      `${name ?? `Species #${id}`} — species level (all forms together), completed ${filters.regulation} battles, ` +
+      `${name ?? `Species #${id}`} — species level (all forms together), completed ${regName(filters.regulation)} battles,` +
       `rating band “${bandName(filters.band)}”. Pairs with n < ${manifest.min_n} hidden; bands are never combined.`;
     const p = pairs.partners ? speciesEntry(pairs.partners, id) : undefined;
     const m = pairs.matchups ? speciesEntry(pairs.matchups, id) : undefined;
@@ -452,13 +480,18 @@ async function start() {
 
   async function load() {
     const reg = manifest.regulations.find((r) => r.id === filters.regulation);
-    options(regSel, manifest.regulations.map((r) => r.id), (v) => v, filters.regulation);
+    options(regSel, manifest.regulations.map((r) => r.id), regName, filters.regulation);
     options(bandSel, reg?.bands ?? [], bandName, filters.band);
     search.value = filters.query;
     sync();
     const mine = ++token;
-    usagePage = 1;
     context.textContent = "Loading…";
+    const unrated = unratedNote(manifest, filters.regulation, filters.band);
+    unratedEl.hidden = !unrated;
+    if (unrated) {
+      rich(unratedEl, [[pct(unrated.share), "notice-hl"], " of ", [unrated.regulation, "notice-hl"],
+        " player-battles have no rating and are not in any rating band (they are counted in “All players”)."]);
+    } else unratedEl.replaceChildren();
     detailContext.textContent = "Loading…";
     const pairLoad = Promise.all([tryLoad("partners"), tryLoad("matchups"),
       orNull(loadTrendFile(manifest, filters.regulation, filters.band, fetchJson, BASE)),
@@ -492,22 +525,22 @@ async function start() {
   }
 
   regSel.addEventListener("change", () => {
-    filters = readFilters(writeFilters({ ...filters, regulation: regSel.value }), manifest);
+    filters = readFilters(writeFilters({ ...filters, regulation: regSel.value, page: 1 }), manifest);
     void load();
   });
   bandSel.addEventListener("change", () => {
-    filters = { ...filters, band: bandSel.value };
+    filters = { ...filters, band: bandSel.value, page: 1 };
     void load();
   });
   search.addEventListener("input", () => {
-    filters = { ...filters, query: search.value };
+    filters = { ...filters, query: search.value, page: 1 };
     sync();
-    usagePage = 1;
     if (current) renderTable(current, filters.query);
   });
   const turnPage = (delta: number) => {
     if (!current) return;
-    usagePage += delta;
+    filters = { ...filters, page: filters.page + delta };
+    sync();
     renderTable(current, filters.query);
   };
   pagePrev.addEventListener("click", () => turnPage(-1));

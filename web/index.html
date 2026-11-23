@@ -32,6 +32,7 @@
           <label>Search <input id="search" type="search" placeholder="Species or form" autocomplete="off" /></label>
         </form>
         <p id="context" class="context" aria-live="polite"></p>
+        <p id="unrated-note" class="notice" role="status" hidden></p>
         <div class="table-scroll joined">
           <table id="usage">
             <thead>
@@ -141,6 +142,7 @@
                     <th scope="col" class="num" title="Share of that month's player-battles in this regulation and band">Usage</th>
                     <th scope="col" class="num">Win rate</th>
                     <th scope="col" class="num" title="95% Wilson interval">95% CI</th>
+                    <th scope="col" class="num" title="Win rate minus the band baseline of that month, in percentage points">vs band</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -150,7 +152,8 @@
           <p class="note">
             Month = the UTC month the replay was <strong>uploaded</strong>, not the day the battle was played. Usage = teams
             with the species ÷ player-battles of that month, in this rating band only. Months where the species has fewer
-            than 100 teams are gaps, not zeros.
+            than 100 teams are gaps, not zeros. “vs band” compares the win rate with the baseline of the same band in the
+            same month (all its teams), not with 50%.
           </p>
 
           <h3>Tera</h3>
@@ -171,7 +174,8 @@
             Tera rate = Tera events ÷ team appearances where the species was sent out. <strong>Win rates with and without
             Tera are not comparable</strong>: a Pokémon must still be on the field to Terastallize, so the “without Tera”
             games include those where it fainted early (survivorship bias), and players choose when to Tera. The gap is
-            not the effect of Terastallizing.
+            not the effect of Terastallizing. Each is shown against the band baseline (the win rate of all teams in this
+            regulation and band), which says how those games went, not why.
           </p>
         </div>
       </section>

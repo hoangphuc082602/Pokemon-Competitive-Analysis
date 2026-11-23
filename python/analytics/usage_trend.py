@@ -76,6 +76,9 @@ def build_trend_tables(out_dir: Path, name_map: pd.DataFrame):
     usage["usage_share"] = usage["appearances"] / usage["player_battles"]
     usage["win_rate"] = usage["wins"] / usage["appearances"]
     usage["win_ci_low"], usage["win_ci_high"] = wilson(usage["wins"], usage["appearances"])
+    base = usage.groupby(["regulation", "month", "rating_band"])[["wins", "appearances"]].transform("sum")
+    usage["baseline_win_rate"] = base["wins"] / base["appearances"]       # BR-09 per month: before any n filter
+    usage["win_rate_delta"] = usage["win_rate"] - usage["baseline_win_rate"]
     usage["sent_out_rate"] = usage["sent_out"] / usage["appearances"]
     usage.insert(3, "species", usage["species_id"].map(species_labels(name_map)))
     return (usage.sort_values(["regulation", "month", "rating_band", "appearances"], ascending=[True, True, True, False])
@@ -87,6 +90,7 @@ def species_trend(usage: pd.DataFrame, species: str, regulation: str, band: str 
     u = usage[(usage["species"] == species) & (usage["regulation"] == regulation) & (usage["rating_band"] == band)]
     return pd.DataFrame({"month": u["month"], "player_battles": u["player_battles"], "tail": u["tail"], "teams": u["appearances"],
                          "usage_%": (100 * u["usage_share"]).round(1), "win_%": (100 * u["win_rate"]).round(1),
+                         "vs_band_pp": (100 * u["win_rate_delta"]).round(1),
                          "sent_out_%": (100 * u["sent_out_rate"]).round(1)}).sort_values("month").reset_index(drop=True)
 
 
@@ -117,6 +121,13 @@ def main(argv=None) -> int:
           f"win rate over all slots {100 * a['wins'].sum() / slots:.2f}% (expect ~50); "
           f"band rows add up to the 'all' rows: {band_slots == slots and band_pb.sort_index().equals(all_pb.sort_index())}; "
           f"tail identical in every band: {int(totals.groupby(['regulation', 'month'])['tail'].nunique().max()) == 1}")
+    base = usage.drop_duplicates(["regulation", "month", "rating_band"])
+    ab = base.loc[base["rating_band"] == "all", "baseline_win_rate"]
+    print(f"checks: monthly 'all' baseline {100 * ab.min():.2f} to {100 * ab.max():.2f}% (expect ~50); "
+          f"band baselines {100 * base['baseline_win_rate'].min():.1f} to {100 * base['baseline_win_rate'].max():.1f}%")
+    unrated = totals.loc[totals["rating_band"] == "unknown", "player_battles"].sum() / ta["player_battles"].sum()
+    print(f"BR-11: {100 * unrated:.2f}% of player-battles have no rating_before and are excluded from rating bands "
+          f"(kept in 'all' and in the 'unknown' band)")
     reg = args.show or ta.groupby("regulation")["battles"].sum().idxmax()
     print(f"\nBattles per month in {reg}:")
     print(ta[ta["regulation"] == reg][["month", "battles", "player_battles", "tail"]].to_string(index=False))

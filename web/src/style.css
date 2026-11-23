@@ -53,6 +53,13 @@ tbody tr:last-child td { border-bottom: 0; }
 .up { color: var(--up); }
 .down { color: var(--down); }
 .tag { font-size: 0.75rem; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+.notice {
+  margin: 0 0 12px; padding: 8px 12px; font-size: 0.85rem; color: var(--text); background: var(--surface);
+  border: 1px solid #9bb0ff; border-radius: 0; max-width: 75ch;
+}
+.notice::before { content: "ℹ "; color: #9bb0ff; }
+.notice-hl { color: #3ddfeb; font-weight: 700; }
+.context .hl { color: #31c1cc; font-weight: 700; }
 .note { color: var(--muted); font-size: 0.85rem; max-width: 75ch; }
 .note strong { color: var(--text); }
 h3 { font-size: 1.05rem; margin: 20px 0 8px; }
