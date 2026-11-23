@@ -122,3 +122,39 @@ footer { color: var(--muted); font-size: 0.85rem; padding: 24px 16px 40px; }
 .pager button:disabled { opacity: 0.35; cursor: default; }
 .pager-gap { min-width: 20px; text-align: center; }
 details.note summary { cursor: pointer; margin: 4px 0; }
+
+/* Insights page (#15) and the shared page nav */
+.site-nav { display: flex; gap: 16px; font-size: 0.9rem; margin-bottom: 12px; }
+.site-nav a { color: var(--accent); text-decoration: none; }
+.site-nav a[aria-current="page"] { color: var(--text); font-weight: 600; }
+.src { font-size: 0.7rem; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 3px; margin-left: 2px; }
+sup.src { vertical-align: super; line-height: 0; }
+.insight { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 28px; }
+.insight .meta { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 0.88rem; margin: 0 0 12px; }
+.insight .meta dt { color: var(--muted); }
+.insight .meta dd { margin: 0; }
+.insight .hl { color: var(--text); font-weight: 700; }
+.insight .part { max-width: 75ch; margin: 8px 0; }
+.insight .part-label { color: var(--accent); }
+.insight .caution .part-label { color: var(--down); }
+.deep-links a { color: var(--accent); }
+.chart .label { fill: var(--text); font-size: 12px; }
+.chart .value { fill: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; }
+.chart .value.up { fill: var(--up); }
+.chart .value.down { fill: var(--down); }
+.chart .value.muted { fill: var(--muted); }
+.chart .dot.low { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
+.chart .stem { stroke: var(--muted); stroke-width: 2; }
+.chart .ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
+.chart .bar { fill: var(--accent); }
+.chart .seg3 { fill: var(--border); }
+.chart .seg-label { fill: #ffffff; font-size: 11px; font-weight: 600; }
+.chart .seg3 + .seg-label { fill: var(--text); }
+@media (max-width: 560px) { .insight .meta { grid-template-columns: 1fr; } }
+/* Insights charts: text 3px smaller than the Overview chart, so the plot gets the space */
+.insight .chart .axis { font-size: 8px; }
+.insight .chart .label, .insight .chart .value { font-size: 9px; }
+.insight .chart .seg-label { font-size: 8px; }
+.insight .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.75rem; color: var(--muted); margin: 0 0 6px 4px; }
+.insight .legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.insight .swatch { width: 10px; height: 10px; border-radius: 2px; background: var(--border); display: inline-block; }

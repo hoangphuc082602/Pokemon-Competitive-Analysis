@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Four findings on the Pokémon VGC meta from public Showdown replays, each with its population, n and baseline." />
+    <title>VGC Meta Insights</title>
+  </head>
+  <body>
+    <header class="wrap">
+      <nav class="site-nav" aria-label="Pages"><a href="./">Meta Overview</a> <a href="./insights.html" aria-current="page">Insights</a></nav>
+      <h1>Insights</h1>
+      <p class="lede">
+        Four findings from the exploratory analysis, all on <strong id="reg-name">one regulation</strong>, the largest
+        recent Scarlet/Violet format in the data. Each states its population, rating band, <code>n</code> and baseline, and
+        keeps three things apart: the <strong>fact</strong> (what was counted), the <strong>calculation</strong> (how the
+        figure is made) and the <strong>interpretation</strong> (what it suggests, not what causes it).
+      </p>
+      <p class="lede note">
+        Figures marked <span class="src">export</span> are computed in your browser from the same data files the Meta
+        Overview shows; the “Open in Meta Overview” links open that view. Figures marked <span class="src">EDA report</span>
+        are quoted from the generated
+        <a href="https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/blob/main/documents/EDA_FINDINGS.md">EDA findings</a>
+        (species level, all regulations), read in the
+        <a href="https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/blob/main/documents/eda_insight.md">hand-written insights</a>.
+        <span id="snapshot"></span>
+      </p>
+      <p id="status" class="context" aria-live="polite">Loading…</p>
+    </header>
+
+    <main class="wrap" id="insights"></main>
+
+    <footer class="wrap">
+      <p>Population everywhere: completed VGC battles from public
+        <a href="https://replay.pokemonshowdown.com/">Pokémon Showdown</a> replays; unit = player-battle (one team in one
+        battle); Bo3 games are not independent; players who upload replays are a self-selected group. Game data from
+        <a href="https://pokeapi.co/">PokéAPI</a> (<a href="data/LICENSE-POKEAPI.txt">BSD-3-Clause</a>). No usernames,
+        replay ids or individual battles are published.</p>
+      <p>Non-commercial fan project. Not affiliated with or endorsed by Pokémon Showdown, Smogon, PokéAPI, Nintendo,
+        Creatures Inc., GAME FREAK inc. or The Pokémon Company. Pokémon and Pokémon character names are trademarks of
+        Nintendo.</p>
+    </footer>
+    <script type="module" src="/src/insights-page.ts"></script>
+  </body>
+</html>
