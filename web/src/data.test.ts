@@ -11,6 +11,7 @@ import {
   loadTrendFile,
   pageList,
   paginate,
+  regulationLabel,
   unratedNote,
   parseManifest,
   speciesEntry,
@@ -29,7 +30,7 @@ const manifest = (over: Record<string, unknown> = {}) => ({
   population: "completed VGC battles",
   totals: { battles: 500, player_battles: 1000 },
   regulations: [
-    { id: "regA", battles: 500, player_battles: 1000, unrated_share: 0.125, bands: ["all", "1500_plus", "unknown"] },
+    { id: "regA", label: "Reg A 2024", battles: 500, player_battles: 1000, unrated_share: 0.125, bands: ["all", "1500_plus", "unknown"] },
     { id: "regB", battles: null, player_battles: null, unrated_share: null, bands: ["all"] },
   ],
   bands: ["all", "1500_plus"],
@@ -153,13 +154,23 @@ describe("unrated notice (BR-11)", () => {
   const m = parseManifest(manifest()) as Manifest;
 
   it("tells how many player-battles a rating band leaves out, only on rating bands", () => {
-    expect(unratedNote(m, "regA", "1500_plus")).toMatch(/12.5%.*no rating/);
-    expect(unratedNote(m, "regA", "all")).toBe("");        // 'all' includes them
-    expect(unratedNote(m, "regA", "unknown")).toBe("");    // that band is them
+    expect(unratedNote(m, "regA", "1500_plus")).toEqual({ share: 0.125, regulation: "Reg A 2024" });
+    expect(unratedNote(m, "regA", "all")).toBeNull();        // 'all' includes them
+    expect(unratedNote(m, "regA", "unknown")).toBeNull();    // that band is them
   });
 
   it("says nothing when the share was not reported", () => {
-    expect(unratedNote(m, "regB", "1500_plus")).toBe("");
+    expect(unratedNote(m, "regB", "1500_plus")).toBeNull();
+  });
+});
+
+describe("regulation labels", () => {
+  const m = parseManifest(manifest()) as Manifest;
+
+  it("shows the dim_regulation label of a regulation, and the id when there is none", () => {
+    expect(regulationLabel(m, "regA")).toBe("Reg A 2024");
+    expect(regulationLabel(m, "regB")).toBe("regB");        // label missing: never guessed in the browser
+    expect(regulationLabel(m, "nope")).toBe("nope");
   });
 });
 

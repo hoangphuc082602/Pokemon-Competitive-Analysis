@@ -13,6 +13,7 @@ export interface FileEntry {
 
 export interface Regulation {
   id: string;
+  label?: string;                 // dim_regulation.label, e.g. "Reg I 2025"
   battles: number | null;
   player_battles: number | null;
   unrated_share: number | null;   // BR-11: player-battles without a rating (in 'all', in no rating band)
@@ -339,12 +340,17 @@ export interface Filters {
 
 const NOT_RATING_BANDS = new Set(["all", "unknown"]);
 
-/** BR-11 notice for a rating band: the share of player-battles without a rating, left out of every rating band. */
-export function unratedNote(m: Manifest, regulation: string, band: string): string {
+/** Display label of a regulation (dim_regulation.label, written by the export); the id when the manifest has none. */
+export function regulationLabel(m: Manifest, id: string): string {
+  return m.regulations.find((r) => r.id === id)?.label || id;
+}
+
+/** BR-11 notice for a rating band: the share of player-battles without a rating, left out of every rating band;
+ *  null on 'all' / 'unknown' or when the share was not reported. */
+export function unratedNote(m: Manifest, regulation: string, band: string): { share: number; regulation: string } | null {
   const share = m.regulations.find((r) => r.id === regulation)?.unrated_share;
-  if (NOT_RATING_BANDS.has(band) || share === null || share === undefined) return "";
-  return `${(100 * share).toFixed(1)}% of ${regulation} player-battles have no rating and are not in any rating band ` +
-    `(they are counted in “All players”).`;
+  if (NOT_RATING_BANDS.has(band) || share === null || share === undefined) return null;
+  return { share, regulation: regulationLabel(m, regulation) };
 }
 
 /** Filters from a query string, falling back to the first regulation and its 'all' band (or first band). */

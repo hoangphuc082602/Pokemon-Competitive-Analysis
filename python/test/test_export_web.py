@@ -139,7 +139,7 @@ def test_manifest_counts_and_sizes_match_the_files(exported):
         path = out / f["path"]
         assert f["bytes"] == path.stat().st_size
         assert f["rows"] == len(json.loads(path.read_text(encoding="utf-8"))["rows"])
-    assert manifest["regulations"] == [{"id": REG, "battles": 500, "player_battles": 1000, "unrated_share": None,
+    assert manifest["regulations"] == [{"id": REG, "label": "Reg G 2024", "battles": 500, "player_battles": 1000, "unrated_share": None,
                                        "bands": ["all", "1500_plus"]}]
     assert manifest["bands"] == ["all", "1500_plus"] and manifest["totals"] == {"battles": 500, "player_battles": 1000}
 
@@ -602,3 +602,14 @@ def test_manifest_reports_the_unrated_share_excluded_from_rating_bands(tmp_path)
     pd.DataFrame({"regulation": [REG] * 2, "rating_band": ["all", "1500_plus"], "battles": [500, None],
                   "player_battles": [1000, 400]}).to_csv(agg / "regulation_totals.csv", index=False)
     assert export(agg, tmp_path / "web2")["regulations"][0]["unrated_share"] is None      # not reported, not guessed
+
+
+def test_regulations_carry_the_dim_regulation_label(tmp_path):
+    agg = _write(tmp_path)
+    pd.DataFrame({"regulation": [REG], "sort_order": [1], "label": ["Reg G (test label)"]}).to_csv(
+        agg / "dim_regulation.csv", index=False)
+    assert export(agg, tmp_path / "web")["regulations"][0]["label"] == "Reg G (test label)"
+
+
+def test_without_dim_regulation_the_label_follows_the_same_mapping(tmp_path):
+    assert export(_write(tmp_path), tmp_path / "web")["regulations"][0]["label"] == "Reg G 2024"

@@ -3,7 +3,8 @@
     python -m python.analytics.export_web --agg data/aggregates --out web/public/data
 
 Reads pokemon_usage_stats (Parquet, in batches; CSV fallback in chunks) and regulation_totals, writes
-    manifest.json                          schema version, snapshot date, regulations, bands, row counts, file sizes
+    manifest.json                          schema version, snapshot date, regulations (with the dim_regulation label),
+                                           bands, row counts, file sizes
     team_usage/<regulation>__<band>.json   form-level team usage of one regulation x rating band
     species_forms.json                     species <-> form mapping of every form in the team usage files
     partners/<regulation>__<band>.json     per species: its most frequent team partners with lift (pokemon_partner_stats)
@@ -43,6 +44,7 @@ from pathlib import Path
 import pandas as pd
 import pyarrow.parquet as pq
 
+from python.analytics.dim_tables import parse_regulation
 from python.analytics.pokemon_usage import wilson
 
 SCHEMA_VERSION = 5              # v5: baselines for trend + Tera, unrated share (BR-11); v4: trend + tera datasets (#14); v3: partners + matchups (#13); v2: one row per form (#24)
@@ -387,6 +389,17 @@ def _write_json(path: Path, obj) -> int:
     return len(text.encode("utf-8"))
 
 
+def _regulation_labels(agg: Path) -> dict[str, str]:
+    """regulation -> display label from dim_regulation.csv (dim_tables); {} when it was not built, and the export then
+    uses the same mapping (dim_tables.parse_regulation)."""
+    path = agg / "dim_regulation.csv"
+    if not path.exists():
+        return {}
+    dim = pd.read_csv(path, usecols=["regulation", "label"])
+    check_columns(dim.columns, path.name)
+    return {str(r): str(l) for r, l in zip(dim["regulation"], dim["label"]) if pd.notna(l)}
+
+
 def _band_key(band: str) -> int:
     return BAND_ORDER.index(band) if band in BAND_ORDER else len(BAND_ORDER)
 
@@ -417,12 +430,13 @@ def export(agg: Path, out: Path, batch_size: int = 500_000, snapshot_date: str |
     forms_file = {"path": "species_forms.json", "rows": len(mapping), "bytes": _write_json(out / "species_forms.json", mapping)}
     baselines = {(str(r), str(b)): float(v) for (r, b), v in
                  usage.groupby(["regulation", "rating_band"])["baseline_win_rate"].first().items()}
+    labels = _regulation_labels(agg)
     regs = []
     for reg in sorted(usage["regulation"].unique()):
         t = totals[(totals["regulation"] == reg) & (totals["rating_band"] == "all")]
         u = totals[(totals["regulation"] == reg) & (totals["rating_band"] == "unknown")]
         everyone = float(t["player_battles"].iloc[0]) if len(t) else 0.0
-        regs.append({"id": reg,
+        regs.append({"id": reg, "label": labels.get(reg) or parse_regulation(reg)[3],
                      "battles": int(t["battles"].iloc[0]) if len(t) and pd.notna(t["battles"].iloc[0]) else None,
                      "player_battles": int(t["player_battles"].iloc[0]) if len(t) else None,
                      # BR-11: player-battles without rating_before (in 'all', in no rating band); None when not reported
@@ -461,7 +475,7 @@ def main(argv=None) -> int:
     files = m["datasets"]["team_usage"]
     on_disk = {f["path"]: (args.out / f["path"]).stat().st_size for f in files}
     print(f"schema v{m['schema_version']}, snapshot {m['snapshot_date']}, n >= {m['min_n']}")
-    print(f"regulations ({len(m['regulations'])}): " + ", ".join(r["id"] for r in m["regulations"]))
+    print(f"regulations ({len(m['regulations'])}): " + ", ".join(f"{r['label']} ({r['id']})" for r in m["regulations"]))
     print(f"bands ({len(m['bands'])}): " + ", ".join(m["bands"]))
     print("BR-11 unrated share (no rating, in no rating band): " + ", ".join(
         f"{r['id']} {'n/a' if r['unrated_share'] is None else f'{100 * r['unrated_share']:.1f}%'}" for r in m["regulations"]))
