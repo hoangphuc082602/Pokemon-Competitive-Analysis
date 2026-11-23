@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -19,6 +20,8 @@ def test_notebook_is_valid_and_its_code_cells_run_on_the_aggregate_tables(tmp_pa
     nb = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
     assert nb["nbformat"] == 4 and any(c["cell_type"] == "code" for c in nb["cells"])
     assert all(c["outputs"] == [] for c in nb["cells"] if c["cell_type"] == "code")      # committed clean; run it to see results
+    code = "".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code")
+    assert not re.search(r"[A-Za-z]:\\|/home/|/Users/", code), "machine-specific absolute path in the notebook"
 
     out, name_map = _write(tmp_path)
     pd.DataFrame(TERA, columns=["battle_id", "username", "species", "tera_type"]).to_parquet(out / "battle_tera.parquet")
@@ -34,9 +37,11 @@ def test_notebook_is_valid_and_its_code_cells_run_on_the_aggregate_tables(tmp_pa
     partner_stats.main(common + ["--min-support", "1"])
     matchup_stats.main(common + ["--min-support", "1"])
 
+    monkeypatch.chdir(NOTEBOOK.parent)          # Jupyter starts in notebooks/; the setup cell must find the repo root
     monkeypatch.setenv("AGG_DIR", str(agg))
     monkeypatch.setenv("MIN_N", "1")
     namespace = {"display": print}
     for i, cell in enumerate(c for c in nb["cells"] if c["cell_type"] == "code"):
         exec(compile("".join(cell["source"]), f"notebook-cell-{i}", "exec"), namespace)
+    assert Path.cwd() == NOTEBOOK.parents[1]
     assert namespace["REGULATION"] == "gen9vgc2024regg" and namespace["SPECIES"] == "Incineroar"
