@@ -43,6 +43,8 @@ players who publish replays are a self-selected group, so this describes who upl
 
 ## 4. Popularity correlates with win rate in every rating band; rating does not explain it
 
+**Status (#15): resolved.** This finding was pending until the within-band table (section 4 of the report) existed; it is now read from that table and published as insight 4 of the web Insights page. The page quotes only the figures that are in the generated report (all-band 0.48 to 0.65; fixed 1500+ species set per band). The wider-set means below (species with at least 2,000 teams below 1200) are not in the generated report.
+
 **Fact.** Over all players and the species with at least 2,000 teams, the rank correlation between usage and win rate minus the baseline is 0.48 to 0.65 in the seven Scarlet/Violet regulations. Inside rating bands, on the species with at least 2,000 teams below 1200 (95-140 species), the unweighted mean over six regulations is 0.54 below 1200, 0.49 at 1200-1399, 0.42 at 1400-1499 and 0.43 at 1500+, and every cell is positive (0.28 to 0.71). On the narrower set of species with at least 500 teams at 1500+ (52-107 species) the same means are 0.32, 0.15, 0.02 and 0.24. Champions Reg M-A is about 0 on the wider set (0.08 overall) and 0.2 on the narrow one.
 
 **Interpretation.** Usage and win rate move together at every rating, and the drop from the weakest to the strongest band (about 0.1) is within noise, so rating does not explain the link. Its size depends on the species counted: most of it comes from rarely used species winning less, and among the most used species it is weaker (about 0.2 to 0.3). This is correlation, not cause.
