@@ -35,6 +35,7 @@ def test_notebook_is_valid_and_its_code_cells_run_on_the_aggregate_tables(tmp_pa
     matchup_stats.main(common + ["--min-support", "1"])
 
     monkeypatch.setenv("AGG_DIR", str(agg))
+    monkeypatch.setenv("MIN_N", "1")
     namespace = {"display": print}
     for i, cell in enumerate(c for c in nb["cells"] if c["cell_type"] == "code"):
         exec(compile("".join(cell["source"]), f"notebook-cell-{i}", "exec"), namespace)

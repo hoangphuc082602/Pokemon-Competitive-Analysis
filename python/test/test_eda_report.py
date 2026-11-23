@@ -1,4 +1,5 @@
 import numpy as np
+from numpy import core
 import pandas as pd
 import pytest
 
@@ -138,6 +139,19 @@ def test_a_rating_driven_correlation_disappears_inside_each_band():
     both["player_battles"] = 200000
     assert eda.popularity_vs_success(both, min_teams=100).iloc[0]["spearman_usage_vs_win_delta"] > 0.5   # the mixture looks like a relation
 
+def test_popularity_by_band_uses_one_species_set_in_every_band():
+    # weak players also use 10 rare species that lose; strong players do not. Over the whole weak-band list that tail makes
+    # popularity look like success; on the fixed set (species with enough teams at 1500+) it does not.
+    sp = [f"S{i}" for i in range(12)]
+    alt = [0.01 if i % 2 == 0 else -0.01 for i in range(12)]
+    core = [(n, 3000 - 100 * i, alt[i]) for i, n in enumerate(sp)]
+    tail = [(f"T{i}", 30, -0.05) for i in range(10)]
+    usage = _two_bands({"below_1200": core + tail, "1500_plus": core})
+    assert eda.popularity_vs_success(usage, min_teams=1, band="below_1200").iloc[0]["spearman_usage_vs_win_delta"] > 0.5
+    r = eda.popularity_by_band(usage, min_teams_band=100).iloc[0]
+    assert r["species"] == 12 and abs(r["below_1200"]) < 0.35 and abs(r["1500_plus"]) < 0.35
+    assert np.isnan(r["1200_1399"])                                                   # band absent from the data: left empty
+    assert eda.popularity_by_band(usage, min_teams_band=100000).empty                  # too few species at the reference band
 
 def test_tiny_regulations_are_left_out_of_the_report(tmp_path):
     from python.analytics import dim_tables, pokemon_usage
