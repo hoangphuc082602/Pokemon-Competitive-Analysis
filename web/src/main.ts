@@ -2,13 +2,16 @@ import "./style.css";
 import {
   DataError,
   filterRows,
+  formNote,
   loadTeamUsage,
   parseManifest,
   readFilters,
   writeFilters,
   type Filters,
+  type FormBasis,
   type Manifest,
   type TeamUsage,
+  type UsageRow,
 } from "./data";
 
 const BASE = `${import.meta.env.BASE_URL}data/`;
@@ -49,6 +52,23 @@ function cell(text: string, cls?: string): HTMLTableCellElement {
   return td;
 }
 
+const FORM_TAG: Record<FormBasis, string> = { listed: "", observed: "seen in battle", unobserved: "never sent out",
+  species_only: "species level" };
+
+function nameCell(r: UsageRow): HTMLTableCellElement {
+  const td = cell(r.label);
+  const note = formNote(r);
+  if (note) {
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = FORM_TAG[r.form_basis];
+    tag.title = note;
+    td.append(" ", tag);
+    td.title = note;
+  }
+  return td;
+}
+
 function renderTable(data: TeamUsage, query: string) {
   const rows = filterRows(data.rows, query);
   tbody.replaceChildren(...rows.map((r) => {
@@ -56,7 +76,7 @@ function renderTable(data: TeamUsage, query: string) {
     const rank = data.rows.indexOf(r) + 1;
     tr.append(
       cell(String(rank), "num muted"),
-      cell(r.species),
+      nameCell(r),
       cell(fmt.format(r.n), "num"),
       cell(pct(r.usage_share), "num"),
       cell(pct(r.win_rate), "num"),
@@ -68,7 +88,7 @@ function renderTable(data: TeamUsage, query: string) {
   }));
   if (!rows.length) {
     const tr = document.createElement("tr");
-    const td = cell(query ? `No species matches “${query}”.` : "No species reaches the minimum sample size.");
+    const td = cell(query ? `No Pokémon matches “${query}”.` : "No form reaches the minimum sample size.");
     td.colSpan = 8;
     tr.append(td);
     tbody.append(tr);
@@ -79,7 +99,7 @@ function setContext(data: TeamUsage) {
   context.textContent =
     `Population: completed ${data.regulation} battles, rating band “${BAND_LABEL[data.rating_band] ?? data.rating_band}” — ` +
     `${fmt.format(data.player_battles)} player-battles. Band baseline win rate ${pct(data.baseline_win_rate)}. ` +
-    `${data.rows.length} species with n ≥ ${data.min_n} shown (smaller samples hidden).`;
+    `${data.rows.length} forms with n ≥ ${data.min_n} shown (smaller samples hidden).`;
 }
 
 async function start() {

@@ -4,13 +4,16 @@
 
 Reads pokemon_usage_stats (Parquet, in batches; CSV fallback in chunks) and regulation_totals, writes
     manifest.json                          schema version, snapshot date, regulations, bands, row counts, file sizes
-    team_usage/<regulation>__<band>.json   species-level team usage of one regulation x rating band
+    team_usage/<regulation>__<band>.json   form-level team usage of one regulation x rating band
+    species_forms.json                     species <-> form mapping of every form in the team usage files
 Business rules are applied here so the browser only displays (docs/ai-onboarding/03-BUSINESS-RULES):
     population  completed VGC battles, unit = player-battle (inherited from pokemon_usage)
-    BR-05       rows are species level (all forms summed, the documented species total of pokemon_usage)
+    BR-05       one row per form (poke_id x form_basis of pokemon_usage_stats), never merged: masked families
+                never sent out are a '<species> (form unknown)' row, forms missing from the master data a
+                species-level 'species_only' row; BR-06: 'observed' rows count only teams where the form was revealed
     BR-08       every band is its own file; 'all' comes from the 'all' rows of the input, never from a sum of bands
     BR-09       win_rate_delta = win rate - the band's own baseline (all species of that regulation x band, before the n filter)
-    BR-10       species with n < 100 player-battles are dropped
+    BR-10       rows (forms) with n < 100 player-battles are dropped
 Output columns are an allow-list; usernames, replay / battle ids and player-level columns are refused (ExportError).
 """
 from __future__ import annotations
@@ -26,11 +29,12 @@ import pyarrow.parquet as pq
 
 from python.analytics.pokemon_usage import wilson
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MIN_N = 100
-KEYS = ["regulation", "rating_band", "species_id", "species"]
+KEYS = ["regulation", "rating_band", "species_id", "species", "poke_id", "form", "form_basis"]
+NO_FORM = -1                     # poke_id of unobserved / species_only rows while grouping (NULL in the output)
 COUNTS = ["appearances", "wins", "leads"]
-ROW_COLUMNS = ["species_id", "species", "n", "usage_share", "win_rate", "win_ci_low", "win_ci_high",
+ROW_COLUMNS = ["species_id", "species", "poke_id", "form", "form_basis", "label", "n", "usage_share", "win_rate", "win_ci_low", "win_ci_high",
                "win_rate_delta", "lead_rate"]
 FILE_COLUMNS = ["regulation", "rating_band", "player_battles", "baseline_win_rate", "min_n", "rows"]
 FORBIDDEN = re.compile(r"user|replay|battle_id|player_side|^side$|^p[12]_|rating_before|nickname|pokemon_name", re.I)
@@ -48,7 +52,7 @@ def check_columns(columns, where: str) -> None:
 
 
 def _usage_batches(agg: Path, batch_size: int):
-    """Species-level partial sums of pokemon_usage_stats, one DataFrame per batch."""
+    """Form-level partial sums of pokemon_usage_stats, one DataFrame per batch."""
     pq_path, csv_path = agg / "pokemon_usage_stats.parquet", agg / "pokemon_usage_stats.csv"
     if pq_path.exists():
         pf = pq.ParquetFile(pq_path)
@@ -61,7 +65,10 @@ def _usage_batches(agg: Path, batch_size: int):
         raise ExportError(f"pokemon_usage_stats.parquet/.csv not found in {agg}")
     for df in batches:
         df = df.assign(regulation=df["regulation"].astype(str), rating_band=df["rating_band"].astype(str),
-                       species=df["species"].astype(str), species_id=df["species_id"].astype("int64"))
+                       species=df["species"].astype(str), species_id=df["species_id"].astype("int64"),
+                       poke_id=pd.to_numeric(df["poke_id"], errors="coerce").fillna(NO_FORM).astype("int64"),
+                       form=df["form"].where(df["form"].notna(), "").astype(str),
+                       form_basis=df["form_basis"].astype(str))
         yield df.groupby(KEYS, as_index=False)[COUNTS].sum()
 
 
@@ -72,7 +79,7 @@ def _totals(agg: Path) -> pd.DataFrame:
 
 
 def team_usage(agg: Path, batch_size: int = 500_000) -> pd.DataFrame:
-    """Species-level team usage per regulation x band with band baseline, delta and Wilson interval (n < 100 dropped)."""
+    """Form-level team usage per regulation x band with band baseline, delta and Wilson interval (n < 100 dropped)."""
     totals = _totals(agg)
     parts = list(_usage_batches(agg, batch_size))
     if not parts:
@@ -91,15 +98,25 @@ def team_usage(agg: Path, batch_size: int = 500_000) -> pd.DataFrame:
     g["win_rate_delta"] = g["win_rate"] - g["baseline_win_rate"]
     g["win_ci_low"], g["win_ci_high"] = wilson(g["wins"], g["appearances"])
     g["lead_rate"] = g["leads"] / g["appearances"]
-    return g.sort_values(["regulation", "rating_band", "n", "species"], ascending=[True, True, False, True]).reset_index(drop=True)
+    g["label"] = [_label(*v) for v in g[["species", "poke_id", "form", "form_basis"]].itertuples(index=False)]
+    return g.sort_values(["regulation", "rating_band", "n", "label"], ascending=[True, True, False, True]).reset_index(drop=True)
+
+
+def _label(species: str, poke_id: int, form: str, form_basis: str) -> str:
+    """Display name of a row: the form ('calyrex-shadow' -> 'Calyrex-Shadow'), or the species with why it has no form."""
+    if poke_id != NO_FORM and form:
+        return "-".join(part.capitalize() for part in form.split("-"))
+    return f"{species} (form unknown)" if form_basis == "unobserved" else f"{species} (form not in master data)"
 
 
 def _records(df: pd.DataFrame) -> list[dict]:
     check_columns(df.columns, "team_usage rows")
     out = df[ROW_COLUMNS].copy()
-    floats = [c for c in ROW_COLUMNS if c not in ("species_id", "species", "n")]
+    floats = ROW_COLUMNS[ROW_COLUMNS.index("n") + 1:]
     out[floats] = out[floats].astype(float).round(5)
-    return [{"species_id": int(r.species_id), "species": str(r.species), "n": int(r.n),
+    return [{"species_id": int(r.species_id), "species": str(r.species),
+             "poke_id": None if int(r.poke_id) == NO_FORM else int(r.poke_id), "form": str(r.form) or None,
+             "form_basis": str(r.form_basis), "label": str(r.label), "n": int(r.n),
              **{c: float(getattr(r, c)) for c in floats}} for r in out.itertuples(index=False)]
 
 
@@ -132,6 +149,9 @@ def export(agg: Path, out: Path, batch_size: int = 500_000, snapshot_date: str |
         size = _write_json(out / rel, payload)
         files.append({"regulation": reg, "rating_band": band, "path": rel, "rows": len(payload["rows"]), "bytes": size})
     files.sort(key=lambda f: (f["regulation"], _band_key(f["rating_band"])))
+    forms = usage.loc[usage["poke_id"] != NO_FORM, ["species", "form"]].drop_duplicates().sort_values(["species", "form"])
+    mapping = [{"species": str(r.species), "form": str(r.form)} for r in forms.itertuples(index=False)]
+    forms_file = {"path": "species_forms.json", "rows": len(mapping), "bytes": _write_json(out / "species_forms.json", mapping)}
     regs = []
     for reg in sorted(usage["regulation"].unique()):
         t = totals[(totals["regulation"] == reg) & (totals["rating_band"] == "all")]
@@ -146,12 +166,12 @@ def export(agg: Path, out: Path, batch_size: int = 500_000, snapshot_date: str |
         "schema_version": SCHEMA_VERSION,
         "snapshot_date": snapshot_date,
         "min_n": MIN_N,
-        "population": "completed VGC battles; unit = player-battle; species level (forms summed)",
+        "population": "completed VGC battles; unit = player-battle; one row per form (masked / unlisted forms at species level)",
         "totals": {"battles": sum(r["battles"] or 0 for r in regs),
                    "player_battles": sum(r["player_battles"] or 0 for r in regs)},
         "regulations": regs,
         "bands": sorted({f["rating_band"] for f in files}, key=_band_key),
-        "datasets": {"team_usage": files},
+        "datasets": {"team_usage": files, "species_forms": forms_file},
     }
     _write_json(out / "manifest.json", manifest)
     return manifest
@@ -175,6 +195,13 @@ def main(argv=None) -> int:
           f"{sum(on_disk.values()) / 1024:,.1f} KiB, largest {max(on_disk.values(), default=0) / 1024:,.1f} KiB")
     for f in files:
         print(f"  {f['path']}: {f['rows']} rows, {f['bytes']:,} B")
+    basis = {}
+    for f in files:
+        for r in json.loads((args.out / f["path"]).read_text(encoding="utf-8"))["rows"]:
+            basis[r["form_basis"]] = basis.get(r["form_basis"], 0) + 1
+    sf = m["datasets"]["species_forms"]
+    print("rows per form_basis: " + ", ".join(f"{k} {v:,}" for k, v in sorted(basis.items())))
+    print(f"species_forms.json: {sf['rows']} forms, {sf['bytes']:,} B")
     print(f"checks: manifest sizes match files: {all(on_disk[f['path']] == f['bytes'] for f in files)}; "
           f"every file < 100 MB: {all(v < 100 * 2**20 for v in on_disk.values())}")
     return 0

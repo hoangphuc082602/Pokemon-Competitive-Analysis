@@ -3,12 +3,14 @@ import {
   DataError,
   SCHEMA_VERSION,
   filterRows,
+  formNote,
   loadTeamUsage,
   parseManifest,
   readFilters,
   selectFile,
   writeFilters,
   type Manifest,
+  type UsageRow,
 } from "./data";
 
 const manifest = (over: Record<string, unknown> = {}) => ({
@@ -32,8 +34,9 @@ const manifest = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-const row = (species: string, n: number) => ({
-  species_id: n, species, n, usage_share: 0.1, win_rate: 0.5, win_ci_low: 0.4, win_ci_high: 0.6,
+const row = (species: string, n: number, form: Partial<UsageRow> = {}) => ({
+  species_id: n, species, poke_id: n, form: species.toLowerCase(), form_basis: "listed" as const, label: species,
+  ...form, n, usage_share: 0.1, win_rate: 0.5, win_ci_low: 0.4, win_ci_high: 0.6,
   win_rate_delta: 0, lead_rate: 0.2,
 });
 
@@ -45,6 +48,11 @@ describe("parseManifest", () => {
   it("rejects a different schema version with a typed error", () => {
     expect(() => parseManifest(manifest({ schema_version: SCHEMA_VERSION + 1 }))).toThrow(DataError);
     expect(() => parseManifest(manifest({ schema_version: 0 })))
+      .toThrow(expect.objectContaining({ code: "schema-version" }));
+  });
+
+  it("rejects a v1 (species-level) export", () => {
+    expect(() => parseManifest(manifest({ schema_version: 1 })))
       .toThrow(expect.objectContaining({ code: "schema-version" }));
   });
 
@@ -98,6 +106,25 @@ describe("filterRows", () => {
     const rows = [row("Urshifu", 3), row("Incineroar", 2), row("Rillaboom", 1)];
     expect(filterRows(rows, "  inC ").map((r) => r.species)).toEqual(["Incineroar"]);
     expect(filterRows(rows, "").length).toBe(3);
+  });
+});
+
+describe("form rows", () => {
+  const forms = [
+    row("Calyrex", 2, { form: "calyrex-shadow", label: "Calyrex-Shadow" }),
+    row("Urshifu", 1, { poke_id: null, form: null, form_basis: "unobserved", label: "Urshifu (form unknown)" }),
+  ];
+
+  it("search matches the form label and the species", () => {
+    expect(filterRows(forms, "shadow").map((r) => r.label)).toEqual(["Calyrex-Shadow"]);
+    expect(filterRows(forms, "calyrex").map((r) => r.label)).toEqual(["Calyrex-Shadow"]);
+  });
+
+  it("explains every masked or species-level row and leaves listed forms plain", () => {
+    expect(formNote(forms[0])).toBe("");
+    expect(formNote(forms[1])).toMatch(/never sent out/);
+    expect(formNote(row("Urshifu", 1, { form_basis: "observed" }))).toMatch(/only teams where/);
+    expect(formNote(row("Arceus", 1, { poke_id: null, form: null, form_basis: "species_only" }))).toMatch(/master data/);
   });
 });
 

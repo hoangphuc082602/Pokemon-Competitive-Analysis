@@ -1,7 +1,7 @@
 // Typed loaders and selectors for the static data written by python/analytics/export_web.py.
 // The browser only displays already-correct rows: one regulation x one rating band at a time, never combined.
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;   // v2: one row per form (#24); v1 was species level
 
 export interface FileEntry {
   regulation: string;
@@ -26,12 +26,19 @@ export interface Manifest {
   totals: { battles: number; player_battles: number };
   regulations: Regulation[];
   bands: string[];
-  datasets: { team_usage: FileEntry[] };
+  datasets: { team_usage: FileEntry[]; species_forms: { path: string; rows: number; bytes: number } };
 }
+
+/** How the form of a row is known (pokemon_usage_stats.form_basis). */
+export type FormBasis = "listed" | "observed" | "unobserved" | "species_only";
 
 export interface UsageRow {
   species_id: number;
   species: string;
+  poke_id: number | null;
+  form: string | null;
+  form_basis: FormBasis;
+  label: string;
   n: number;
   usage_share: number;
   win_rate: number;
@@ -98,7 +105,19 @@ export async function loadTeamUsage(m: Manifest, regulation: string, band: strin
 
 export function filterRows(rows: UsageRow[], query: string): UsageRow[] {
   const q = query.trim().toLowerCase();
-  return q ? rows.filter((r) => r.species.toLowerCase().includes(q)) : rows;
+  return q ? rows.filter((r) => r.label.toLowerCase().includes(q) || r.species.toLowerCase().includes(q)) : rows;
+}
+
+const FORM_NOTES: Record<FormBasis, string> = {
+  listed: "",
+  observed: "Form hidden at team preview, seen in battle: n counts only teams where this form was sent out.",
+  unobserved: "Form hidden at team preview and never sent out: form unknown, not guessed.",
+  species_only: "Form not in the master data (e.g. Arceus type forms): species level.",
+};
+
+/** Why a row is masked or species level ("" for a form listed at team preview). */
+export function formNote(r: UsageRow): string {
+  return FORM_NOTES[r.form_basis] ?? "";
 }
 
 export interface Filters {
