@@ -314,12 +314,12 @@ These are tracked openly rather than hidden:
 
 ## Data sources and acknowledgements
 
-- [PokéAPI](https://pokeapi.co/) – canonical Pokémon / move / ability / item data.
-- [Pokémon Showdown](https://pokemonshowdown.com/) – public battle replays.
-- The replay scraper module follows the log-scraping approach of VGC-Bench (see the header of `python/crawl_data/data_vgc.py`) and uses [poke-env](https://github.com/hsahovic/poke-env).
+- [Pokémon Showdown](https://pokemonshowdown.com/) (created by Guangcong Luo and contributors, sponsored by Smogon University) – public battle replays, fetched through the documented replay API. The web app publishes only species-level aggregates with n ≥ 100: no usernames, replay ids or per-battle data.
+- [PokéAPI](https://pokeapi.co/) – canonical Pokémon / move / ability / item data, cached locally per the PokéAPI fair use policy. PokéAPI data is BSD-3-Clause, Copyright (c) 2013–2023 Paul Hallett and PokéAPI contributors; the notice ships with the web data (`web/public/data/LICENSE-POKEAPI.txt`).
+- The replay scraper follows the log-scraping approach of [VGC-Bench](https://github.com/cameronangliss/vgc-bench) (MIT) and uses [poke-env](https://github.com/hsahovic/poke-env).
 - Word2Vec via [Gensim](https://radimrehurek.com/gensim/).
 
-Pokémon and Pokémon character names are trademarks of Nintendo, Creatures Inc. and GAME FREAK inc. This is a non-commercial educational project and is not affiliated with or endorsed by them.
+Pokémon and Pokémon character names are trademarks of Nintendo, Creatures Inc. and GAME FREAK inc. This is a non-commercial educational project and is not affiliated with or endorsed by them, by Pokémon Showdown / Smogon, or by PokéAPI.
 
 ## Author
 
