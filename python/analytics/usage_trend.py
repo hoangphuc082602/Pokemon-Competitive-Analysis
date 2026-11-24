@@ -1,4 +1,4 @@
-"""Monthly usage trend per regulation (definitions: METRICS.md): pokemon_usage_monthly + regulation_monthly_totals.
+"""Monthly usage trend per regulation (definitions: Metrics.md): pokemon_usage_monthly + regulation_monthly_totals.
 
     python -m python.analytics.usage_trend --output-dir data/output_v21 --species Incineroar
 
