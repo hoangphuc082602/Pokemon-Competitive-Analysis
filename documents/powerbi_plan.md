@@ -2,7 +2,7 @@
 
 Audience: a recruiter or analyst who opens the report for two minutes, and a player who wants to explore one regulation.
 Rule for every page: **state the population** (regulation, rating band) and show the **sample size** next to any rate.
-All numbers come from the aggregate tables described in [`METRICS.md`](../METRICS.md); nothing is recomputed from raw replays.
+All numbers come from the aggregate tables described in [`Metrics.md`](../Metrics.md); nothing is recomputed from raw replays.
 
 ## 1. Data model
 
