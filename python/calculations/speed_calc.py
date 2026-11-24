@@ -1,10 +1,16 @@
 from python.calculations.stats_calc import (calculate_other_stat)
 
 
+# Keys are PokéAPI item slugs; "Choice Scarf" / "choice_scarf" are accepted too (see normalize_item_name).
 ITEM_SPEED_MODIFIER = {
-    "Choice Scarf": 1.5,
-    "Iron Ball": 0.5
+    "choice-scarf": 1.5,
+    "iron-ball": 0.5
 }
+
+
+def normalize_item_name(item_name):
+    """'Choice Scarf' / 'choice_scarf' / 'choice-scarf' -> 'choice-scarf'."""
+    return str(item_name or "").strip().lower().replace(" ", "-").replace("_", "-")
 
 
 def calculate_speed(
@@ -23,10 +29,11 @@ def calculate_speed(
         nature_modifier
     )
 
-    if item_name in ITEM_SPEED_MODIFIER:
+    item = normalize_item_name(item_name)
+    if item in ITEM_SPEED_MODIFIER:
         speed = int(
             speed
-            * ITEM_SPEED_MODIFIER[item_name]
+            * ITEM_SPEED_MODIFIER[item]
         )
 
     return speed

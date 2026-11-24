@@ -23,7 +23,9 @@ import {
 const LINK_PREFIX = "#team=";
 const UNTITLED = "Untitled team";
 
-export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: TeamStore, calcUrl: string): void {
+/** onChange: called with the team shown after every edit, add, remove or open (team analysis, #19). */
+export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: TeamStore, calcUrl: string,
+  onChange: (team: Team) => void = () => {}): void {
   const forms = new Map(master.forms.map((f) => [f.poke_id, f]));
   let team: Team = { name: "", members: [] };
   let savedId: string | null = null;
@@ -74,6 +76,7 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
         dirty = true;
         refreshLinks();
         renderClause();
+        onChange(team);
       } });
       editor.load(sideFromMember(forms.get(m.poke_id)!, m), m.moves, m.item);   // resolved team: the form is in the data
       refreshLinks();
@@ -89,6 +92,7 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
     if (team.members.length === 0) list.append(el("li", { className: "muted", textContent: "No Pokémon yet: press “Add Pokémon”." }));
     addBtn.disabled = team.members.length >= MAX_MEMBERS;
     renderClause();
+    onChange(team);
   };
 
   const render = () => {
