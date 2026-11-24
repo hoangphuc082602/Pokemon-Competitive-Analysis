@@ -144,7 +144,7 @@ Python · pandas · NumPy · PyArrow / Parquet · SQLAlchemy + PyMySQL · MySQL 
 ├── models/                # trained Word2Vec model
 ├── Schema.py              # prints row counts and columns of every table (used to produce schema.sql)
 ├── schema.sql             # table / column overview of the MySQL schema (metadata, not executable DDL)
-├── METRICS.md             # scope, populations and metric definitions
+├── Metrics.md             # scope, populations and metric definitions
 ├── requirements.txt       # runtime dependencies
 └── requirements-dev.txt   # + pytest
 ```

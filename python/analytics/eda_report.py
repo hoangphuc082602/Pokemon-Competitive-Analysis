@@ -4,7 +4,7 @@
 
 Reads the Parquet / CSV files written by the aggregate modules and writes documents/EDA_FINDINGS.md and documents/img/*.png.
 Every statement in the report is generated from a table, so numbers and text cannot drift apart. Definitions and
-caveats: METRICS.md. All figures are descriptive; none of them is a causal claim.
+caveats: Metrics.md. All figures are descriptive; none of them is a causal claim.
 """
 from __future__ import annotations
 

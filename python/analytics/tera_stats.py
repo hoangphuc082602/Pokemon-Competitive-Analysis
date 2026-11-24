@@ -1,4 +1,4 @@
-"""Tera aggregates: pokemon_tera_summary + pokemon_tera_types (definitions: METRICS.md).
+"""Tera aggregates: pokemon_tera_summary + pokemon_tera_types (definitions: Metrics.md).
 
     python -m python.analytics.tera_stats --output-dir data/output_v21
 
