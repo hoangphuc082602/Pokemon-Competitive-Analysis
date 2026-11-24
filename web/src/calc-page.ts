@@ -1,14 +1,11 @@
 import "./style.css";
 import {
   buildRequest,
-  defaultSide,
   displayName,
   koLabel,
-  movesFor,
   parseCalcMaster,
   spreadError,
   STATS,
-  type CalcForm,
   type CalcMaster,
   type CalcMove,
   type CalcResult,
@@ -16,106 +13,24 @@ import {
   type Stats,
 } from "./calc";
 import { loadEngine, pythonErrorMessage, type Engine } from "./engine";
-import { browserStorage, createTeamStore } from "./team";
-import { mountTeamPanel, type SideControl } from "./team-panel";
+import { createPokemonEditor, el, options, type PokemonEditor } from "./pokemon-editor";
+import {
+  browserStorage,
+  createTeamStore,
+  readCalcLink,
+  resolveTeam,
+  sideFromMember,
+  TeamLinkError,
+  type CalcSide,
+  type TeamMember,
+} from "./team";
 
 const BASE = `${import.meta.env.BASE_URL}data/`;
-const STAT_LABEL: Record<string, string> = { hp: "HP", atk: "Atk", def: "Def", spatk: "SpA", spdef: "SpD", spe: "Spe" };
 const DEFAULTS = { attacker: "flutter-mane", defender: "incineroar" };   // fall back to the first form when absent
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = $<HTMLParagraphElement>("engine-status");
-
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {},
-  ...children: (Node | string)[]): HTMLElementTagNameMap[K] {
-  const node = Object.assign(document.createElement(tag), props);
-  node.append(...children);
-  return node;
-}
-
-function options(select: HTMLSelectElement, items: [string, string][], selected?: string) {
-  select.replaceChildren(...items.map(([value, label]) => el("option", { value, label, textContent: label })));
-  if (selected !== undefined && items.some(([v]) => v === selected)) select.value = selected;
-}
-
-function natureLabel(n: CalcMaster["natures"][number]): string {
-  const name = displayName(n.name);
-  return n.increased && n.decreased && n.increased !== n.decreased
-    ? `${name} (+${STAT_LABEL[n.increased]} −${STAT_LABEL[n.decreased]})` : `${name} (neutral)`;
-}
-
-function spreadInputs(legend: string, value: number, max: number):
-  { box: HTMLFieldSetElement; read: () => Stats; write: (v: Stats) => void } {
-  const inputs = STATS.map((s) => el("input", { type: "number", min: "0", max: String(max), step: "1", value: String(value),
-    inputMode: "numeric", ariaLabel: `${legend} ${STAT_LABEL[s]}` }));
-  const box = el("fieldset", { className: "spread" }, el("legend", { textContent: legend }),
-    ...STATS.map((s, i) => el("label", {}, STAT_LABEL[s], inputs[i])));
-  const read = () => Object.fromEntries(STATS.map((s, i) => [s, Number(inputs[i].value)])) as Stats;
-  const write = (v: Stats) => STATS.forEach((s, i) => { inputs[i].value = String(v[s]); });
-  return { box, read, write };
-}
-
-function buildSide(root: HTMLFieldSetElement, master: CalcMaster, preferred: string, attacker: boolean,
-  onChange: () => void): SideControl {
-  const forms = [...master.forms].sort((a, b) => displayName(a.form).localeCompare(displayName(b.form)));
-  const byId = new Map(forms.map((f) => [String(f.poke_id), f]));
-  const start = forms.find((f) => f.form === preferred) ?? forms[0];
-  const pokemon = el("select"), ability = el("select"), nature = el("select"), move = el("select");
-  const note = el("p", { className: "note" });
-  const moveNote = el("p", { className: "note" });
-  options(pokemon, forms.map((f) => [String(f.poke_id), displayName(f.form)]), String(start.poke_id));
-  options(nature, master.natures.map((n) => [n.name, natureLabel(n)]), "hardy");
-  const evs = spreadInputs("EVs", 0, 252), ivs = spreadInputs("IVs", 31, 31);
-  const types = el("span", { className: "muted" });
-
-  const form = (): CalcForm => byId.get(pokemon.value) ?? start;
-  const refreshForm = () => {
-    const f = form();
-    const side = defaultSide(f);
-    options(ability, f.abilities.map((a) => [a, displayName(a)]), side.ability);
-    types.textContent = f.types.map(displayName).join(" / ");
-    const borrowed = master.forms.find((x) => x.poke_id === f.borrowed_from);
-    note.textContent = f.borrowed_from === null ? ""
-      : `Abilities and moves of ${displayName(borrowed?.form ?? String(f.borrowed_from))}: the game data has none for this form.`;
-    if (attacker) {
-      const { moves, fromLearnset } = movesFor(master, f);
-      const keep = move.value;
-      options(move, moves.map((m) => [String(m.id), `${displayName(m.name)} (${displayName(m.type)}, ${m.power}, ${m.damage_class})`]), keep);
-      moveNote.textContent = fromLearnset ? "" : "No learnset in the game data for this form: every exported move is listed.";
-    }
-  };
-  pokemon.addEventListener("change", refreshForm);
-  refreshForm();
-
-  root.append(
-    el("div", { className: "filters" },
-      el("label", {}, "Pokémon", pokemon), el("label", {}, "Ability", ability), el("label", {}, "Nature", nature)),
-    el("p", { className: "context" }, "Type: ", types),
-    note,
-    ...(attacker ? [el("div", { className: "filters" }, el("label", {}, "Move", move)), moveNote] : []),
-    evs.box,
-    el("details", {}, el("summary", { textContent: "IVs (31 by default)" }), ivs.box),
-  );
-  root.addEventListener("input", onChange);
-  root.addEventListener("change", onChange);
-
-  const moveById = new Map(master.moves.map((m) => [String(m.id), m]));
-  return {
-    root,
-    read: () => ({ form: form(), ability: ability.value, nature: nature.value, evs: evs.read(), ivs: ivs.read() }),
-    move: attacker ? () => moveById.get(move.value) : undefined,
-    load(s, moveId) {
-      pokemon.value = String(s.form.poke_id);
-      refreshForm();
-      ability.value = s.ability;
-      nature.value = s.nature;
-      evs.write(s.evs);
-      ivs.write(s.ivs);
-      if (attacker && moveId !== undefined && moveById.has(String(moveId))) move.value = String(moveId);
-      onChange();
-    },
-  };
-}
+const teamNote = $<HTMLParagraphElement>("team-note");
 
 function render(r: CalcResult, a: SideInput, d: SideInput, mv: CalcMove) {
   $("result-main").replaceChildren(
@@ -138,6 +53,43 @@ function showError(text: string) {
   $("result").hidden = false;
 }
 
+/** Puts a team member (from a saved team or a team-builder link) on one side; false when the data lacks it. */
+function loadMember(master: CalcMaster, editor: PokemonEditor, member: TeamMember): string[] | null {
+  const { team, notes } = resolveTeam(master, { name: "", members: [member] });
+  if (team.members.length === 0) return null;
+  const m = team.members[0];
+  editor.load(sideFromMember(master.forms.find((f) => f.poke_id === m.poke_id)!, m), m.moves);
+  return notes;
+}
+
+/** "From a saved team" picker at the top of a side; hidden when this browser has no saved team. */
+function savedTeamPicker(root: HTMLElement, master: CalcMaster, editor: PokemonEditor, onLoad: () => void) {
+  const teams = createTeamStore(browserStorage).list();
+  if (teams.every((t) => t.members.length === 0)) return;
+  const pick = el("select");
+  const members = new Map<string, TeamMember>();
+  options(pick, [["", "—"]]);
+  for (const t of teams) {
+    const group = el("optgroup", { label: t.name || "Untitled team" });
+    t.members.forEach((m, i) => {
+      const key = `${t.id}:${i}`;
+      members.set(key, m);
+      const form = master.forms.find((f) => f.poke_id === m.poke_id);
+      group.append(el("option", { value: key, textContent: form ? displayName(form.form) : `Pokémon #${m.poke_id}` }));
+    });
+    pick.append(group);
+  }
+  pick.addEventListener("change", (e) => {
+    e.stopPropagation();   // not an edit of the side itself
+    const m = members.get(pick.value);
+    if (!m) return;
+    const notes = loadMember(master, editor, m);
+    teamNote.textContent = notes === null ? "This Pokémon is not in the calculator data." : notes.join(" ");
+    onLoad();
+  });
+  root.insertBefore(el("div", { className: "filters" }, el("label", {}, "From a saved team", pick)), root.children[1] ?? null);
+}
+
 async function main() {
   let master: CalcMaster;
   try {
@@ -152,7 +104,7 @@ async function main() {
   let engine: Engine | null = null;
   const calculate = () => {
     if (!engine) return;
-    const a = attacker.read(), d = defender.read(), mv = attacker.move?.();
+    const a = attacker.read(), d = defender.read(), mv = master.moves.find((m) => m.id === attacker.moves()[0]);
     const bad = spreadError(a.evs, a.ivs) ?? spreadError(d.evs, d.ivs);
     if (bad) return showError(bad);
     if (!mv) return showError("Pick a move.");
@@ -162,10 +114,32 @@ async function main() {
       showError(`The engine refused this input: ${pythonErrorMessage(e)}`);
     }
   };
-  const attacker = buildSide($("attacker"), master, DEFAULTS.attacker, true, calculate);
-  const defender = buildSide($("defender"), master, DEFAULTS.defender, false, calculate);
+  const attacker = createPokemonEditor($("attacker"), master, { preferred: DEFAULTS.attacker, moveSlots: 1, onChange: calculate });
+  const defender = createPokemonEditor($("defender"), master, { preferred: DEFAULTS.defender, moveSlots: 0, onChange: calculate });
+  const editors: Record<CalcSide, PokemonEditor> = { attacker, defender };
+  savedTeamPicker($("attacker"), master, attacker, calculate);
+  savedTeamPicker($("defender"), master, defender, calculate);
+
+  // A team-builder link (#attacker=… / #defender=…) puts that member on its side.
+  const openLink = () => {
+    let link;
+    try {
+      link = readCalcLink(location.hash);
+    } catch (e) {
+      if (!(e instanceof TeamLinkError)) throw e;
+      teamNote.textContent = `The team link could not be opened: ${e.message}`;
+      return;
+    }
+    if (!link) return;
+    history.replaceState(null, "", location.pathname + location.search);
+    const notes = loadMember(master, editors[link.side], link.member);
+    teamNote.textContent = notes === null ? "This Pokémon is not in the calculator data."
+      : [`Team member loaded as ${link.side}.`, ...notes].join(" ");
+    calculate();
+  };
+  openLink();
+  window.addEventListener("hashchange", openLink);
   $("calc").hidden = false;
-  mountTeamPanel($("team"), master, createTeamStore(browserStorage), { attacker, defender });
 
   status.textContent = "Loading the Python engine (Pyodide, about 5.6 MB on the first visit, then cached)…";
   try {

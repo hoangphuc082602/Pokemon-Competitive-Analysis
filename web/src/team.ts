@@ -1,5 +1,6 @@
 // Team save (#17): a team of up to 6 Pokémon, its share link (versioned, compact, in the URL fragment) and the
-// localStorage store of named teams. Pure: no DOM, no Pyodide; tested with Vitest. Forms, abilities, natures and moves
+// localStorage store of named teams, and the link that opens one member in the damage calculator. Pure: no DOM,
+// no Pyodide; tested with Vitest. Forms, abilities, natures and moves
 // are the ids / slugs of calc_master.json (calc.ts); checking them against the master data is the page's job.
 import {
   displayName, movesFor, spreadError, STATS, type CalcForm, type CalcMaster, type SideInput, type Stats,
@@ -246,18 +247,26 @@ export function resolveTeam(master: CalcMaster, team: Team): { team: Team; notes
   return { team: { name: team.name, members }, notes };
 }
 
-/**
- * The team with a calculator side added (`index` null; the side's move, if any, becomes the first move) or put in
- * place of member `index` (its moves are kept when the new Pokémon can use them). Throws when the team is full.
- */
-export function withMember(master: CalcMaster, team: Team, side: SideInput, index: number | null, moveId?: number): Team {
-  const known = new Set(movesFor(master, side.form).moves.map((mv) => mv.id));
-  const base = index === null ? (moveId === undefined ? [] : [moveId]) : team.members[index].moves;
-  const member: TeamMember = { poke_id: side.form.poke_id, ability: side.ability, nature: side.nature,
-    evs: { ...side.evs }, ivs: { ...side.ivs }, moves: base.filter((id) => known.has(id)) };
-  if (index !== null) return { ...team, members: team.members.map((m, i) => (i === index ? member : m)) };
-  if (team.members.length >= MAX_MEMBERS) throw new RangeError(`A team has at most ${MAX_MEMBERS} Pokémon.`);
-  return { ...team, members: [...team.members, member] };
+/** A calculator side (or a member editor) as a team member. */
+export function memberFromSide(side: SideInput, moves: number[]): TeamMember {
+  return { poke_id: side.form.poke_id, ability: side.ability, nature: side.nature, evs: { ...side.evs },
+    ivs: { ...side.ivs }, moves: [...moves] };
+}
+
+export type CalcSide = "attacker" | "defender";
+
+/** URL fragment that opens one team member on a side of the damage calculator (same codec as a share link). */
+export function calcLink(side: CalcSide, member: TeamMember): string {
+  return `#${side}=${encodeTeam({ name: "", members: [member] })}`;
+}
+
+/** The member a calculator fragment carries; null when the fragment is not one. Throws TeamLinkError when damaged. */
+export function readCalcLink(hash: string): { side: CalcSide; member: TeamMember } | null {
+  const m = /^#(attacker|defender)=(.*)$/.exec(hash);
+  if (!m) return null;
+  const team = decodeTeam(m[2]);
+  if (team.members.length !== 1) throw new TeamLinkError("invalid", "This calculator link does not hold one Pokémon.");
+  return { side: m[1] as CalcSide, member: team.members[0] };
 }
 
 /** A resolved team member as a calculator side (its form must be in the master data). */

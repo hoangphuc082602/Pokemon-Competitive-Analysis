@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CalcMaster } from "./calc";
-import { createTeamStore, decodeTeam, resolveTeam, withMember, encodeTeam, TEAMS_KEY, TeamLinkError, type Team } from "./team";
+import { calcLink, createTeamStore, decodeTeam, readCalcLink, resolveTeam, encodeTeam, TEAMS_KEY, TeamLinkError, type Team } from "./team";
 
 /** In-memory Storage: one instance shared by two stores stands for a browser restart. */
 function memoryStorage(): Storage {
@@ -161,41 +161,15 @@ describe("resolveTeam (a link made with another data snapshot)", () => {
   });
 });
 
-describe("withMember (calculator side -> team)", () => {
-  const MASTER: CalcMaster = {
-    schema_version: 1, level: 50, skipped: [], type_chart: [], natures: [],
-    forms: [
-      { poke_id: 987, species: "Flutter Mane", form: "flutter-mane", types: ["ghost", "fairy"], base_stats: stats(100),
-        abilities: ["protosynthesis"], moves: [247, 585], borrowed_from: null },
-      { poke_id: 727, species: "Incineroar", form: "incineroar", types: ["fire", "dark"], base_stats: stats(90),
-        abilities: ["intimidate"], moves: [53, 247], borrowed_from: null },
-    ],
-    moves: [
-      { id: 247, name: "shadow-ball", type: "ghost", power: 80, damage_class: "special" },
-      { id: 585, name: "moonblast", type: "fairy", power: 95, damage_class: "special" },
-      { id: 53, name: "flamethrower", type: "fire", power: 90, damage_class: "special" },
-    ],
-  };
-  const side = (form: CalcMaster["forms"][number]) =>
-    ({ form, ability: form.abilities[0], nature: "timid", evs: { ...stats(0), spe: 252 }, ivs: stats(31) });
-  const flutter = { poke_id: 987, ability: "protosynthesis", nature: "timid", evs: { ...stats(0), spe: 252 }, ivs: stats(31) };
-
-  it("adds a new member with the side's move, every time it is asked", () => {
-    let team: Team = { name: "", members: [] };
-    team = withMember(MASTER, team, side(MASTER.forms[0]), null, 585);
-    team = withMember(MASTER, team, side(MASTER.forms[0]), null);
-    expect(team.members).toEqual([{ ...flutter, moves: [585] }, { ...flutter, moves: [] }]);
+describe("calculator link (one member as attacker or defender)", () => {
+  it("opens the member on the chosen side", () => {
+    const m = TEAM.members[0];
+    expect(readCalcLink(calcLink("attacker", m))).toEqual({ side: "attacker", member: m });
+    expect(readCalcLink(calcLink("defender", m))).toEqual({ side: "defender", member: m });
   });
-
-  it("updates a member, keeping only the moves the new Pokémon can use", () => {
-    const team = { name: "", members: [{ ...flutter, moves: [585, 247] }] };
-    const next = withMember(MASTER, team, side(MASTER.forms[1]), 0);
-    expect(next.members).toEqual([{ ...flutter, poke_id: 727, ability: "intimidate", moves: [247] }]);
-    expect(team.members[0].poke_id).toBe(987);   // the old team is not changed
-  });
-
-  it("refuses a seventh member", () => {
-    const full = { name: "", members: Array.from({ length: 6 }, () => ({ ...flutter, moves: [] })) };
-    expect(() => withMember(MASTER, full, side(MASTER.forms[0]), null)).toThrow(/at most 6/);
+  it("ignores another fragment and refuses a damaged one", () => {
+    expect(readCalcLink("")).toBeNull();
+    expect(readCalcLink("#detail")).toBeNull();
+    expect(() => readCalcLink(calcLink("attacker", TEAM.members[0]).slice(0, -3))).toThrow(TeamLinkError);
   });
 });

@@ -170,16 +170,16 @@ sup.src { vertical-align: super; line-height: 0; }
 .side details { margin-top: 8px; font-size: 0.85rem; color: var(--muted); }
 .result-main { font-size: 1.1rem; margin: 4px 0; }
 .team-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
-.team button, .side-team button {
+.team button {
   font: inherit; font-size: 0.9rem; color: var(--text); background: var(--surface); cursor: pointer;
   border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px;
 }
-.team button:hover:not(:disabled), .side-team button:hover:not(:disabled) { border-color: var(--accent); }
-.team button:focus-visible, .side-team button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.team button:disabled, .side-team button:disabled { opacity: 0.4; cursor: default; }
-.side-team { margin: 10px 0 0; }
+.team button:hover:not(:disabled) { border-color: var(--accent); }
+.team button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.team button:disabled { opacity: 0.4; cursor: default; }
 .team input[readonly] { width: 100%; margin-bottom: 8px; }
-.team-list { padding-left: 1.5em; margin: 8px 0; }
-.member { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.team-list { list-style: none; padding: 0; margin: 8px 0; }
+.team-list > li { margin-bottom: 12px; }
+.team-list a { color: var(--accent); align-self: center; }
 .member-moves { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; margin-top: 6px; }
 .member-moves select { min-width: 0; width: 100%; }
