@@ -37,6 +37,11 @@ def master(tmp_path):
          [(6, 53, 1, 1), (6, 53, 4, 0), (6, 14, 4, 0), (6, 68, 4, 0), (25, 85, 1, 1), (898, 247, 4, 0)])
     _csv(m, "pokemon_nature_info.csv", ["nature_id", "nature_name", "decreased_stat", "increased_stat"],
          [(1, "hardy", None, None), (4, "adamant", 4.0, 2.0), (16, "modest", 2.0, 4.0)])
+    _csv(m, "item_raw.csv", ["item_id", "item_name", "category", "effect"],
+         [(1, "master-ball", "standard-balls", "x"), (211, "leftovers", "held-items", "x"), (264, "choice-scarf", "choice", "x"),
+          (135, "sitrus-berry", "medicine", "x"), (17, "potion", "healing", "x"), (190, "pecha-berry-x", "unused", "x"),
+          (2000, "hondew-berry", "baking-only", "x"), (2001, "charizardite-x", "mega-stones", "x"),
+          (2002, "choice-scarf", "choice", "x")])   # duplicate name in the crawl: kept once
     return m
 
 
@@ -81,6 +86,13 @@ def test_moves_natures_and_type_chart_use_names_not_ids(master):
     assert {"name": "adamant", "increased": "atk", "decreased": "spatk"} in out["natures"]
     assert {"name": "hardy", "increased": None, "decreased": None} in out["natures"]
     assert sorted(out["type_chart"]) == [["fire", "fire", 0.5], ["ghost", "ghost", 2.0], ["normal", "ghost", 0.0]]
+
+
+def test_items_are_the_holdable_battle_items_by_name(master):
+    """Team builder (#17): held items, choice items, mega stones and berries; not balls, medicine or baking berries."""
+    assert build(master, FORMS)["items"] == [
+        {"name": "charizardite-x", "category": "mega-stones"}, {"name": "choice-scarf", "category": "choice"},
+        {"name": "leftovers", "category": "held-items"}, {"name": "sitrus-berry", "category": "berries"}]
 
 
 def test_a_form_without_base_stats_or_typing_cannot_be_calculated_and_is_left_out(master):

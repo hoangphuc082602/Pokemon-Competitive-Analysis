@@ -8,13 +8,14 @@
   </head>
   <body>
     <header class="wrap">
-      <nav class="site-nav" aria-label="Pages"><a href="./">Meta Overview</a> <a href="./insights.html">Insights</a> <a href="./calc.html" aria-current="page">Damage calc</a></nav>
+      <nav class="site-nav" aria-label="Pages"><a href="./">Meta Overview</a> <a href="./insights.html">Insights</a> <a href="./calc.html" aria-current="page">Damage calc</a> <a href="./team.html">Team builder</a></nav>
       <h1>Damage Calculator</h1>
       <p class="lede">
         One attack, level 50: damage range, share of the defender's HP and a KO estimate. The numbers come from the
         project's own Python damage engine (<code>python/calculations/</code>, tested with pytest), run in your browser
         with <a href="https://pyodide.org/">Pyodide</a>. Game data (base stats, typing, abilities, learnsets, natures, type
-        chart) is from PokéAPI, limited to the Pokémon in the Meta Overview.
+        chart) is from PokéAPI, limited to the Pokémon in the Meta Overview. Either side can be filled from a team saved in the
+        <a href="./team.html">Team builder</a>.
       </p>
       <p class="notice" role="note">
         <strong>Not modelled yet:</strong> spread-move reduction, critical hits, weather and terrain, burn, item and
@@ -23,6 +24,7 @@
         (e.g. Levitate, Flash Fire, Thick Fat), -ate abilities, Normalize, Scrappy and Mold Breaker.
       </p>
       <p id="engine-status" class="context" role="status" aria-live="polite">Loading the Python engine…</p>
+      <p id="team-note" class="context" role="status" aria-live="polite"></p>
     </header>
 
     <main class="wrap">
@@ -55,6 +57,7 @@
           two different rolls. This is a calculation from game mechanics, not observed battle data.
         </p>
       </section>
+
     </main>
 
     <footer class="wrap">

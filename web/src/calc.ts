@@ -1,7 +1,7 @@
 // Pure logic of the Damage Calculator page (#16, ADR-014): master data parsing, the request sent to the Python
 // façade (python/calculations/calc_facade.py) and result labels. No DOM, no Pyodide: tested with Vitest.
 
-export const CALC_SCHEMA_VERSION = 1;   // calc_master.json, python/analytics/calc_master.py
+export const CALC_SCHEMA_VERSION = 2;   // calc_master.json, python/analytics/calc_master.py (2: items, #17)
 export const STATS = ["hp", "atk", "def", "spatk", "spdef", "spe"] as const;
 export type Stat = (typeof STATS)[number];
 export type Stats = Record<Stat, number>;
@@ -26,6 +26,12 @@ export interface CalcMove {
   damage_class: "physical" | "special";
 }
 
+/** A holdable battle item (team builder; the damage engine does not model items). */
+export interface CalcItem {
+  name: string;
+  category: string;
+}
+
 export interface Nature {
   name: string;
   increased: Stat | null;
@@ -40,6 +46,7 @@ export interface CalcMaster {
   moves: CalcMove[];
   natures: Nature[];
   type_chart: [string, string, number][];
+  items: CalcItem[];
 }
 
 export interface SideInput {
@@ -72,7 +79,7 @@ export function parseCalcMaster(json: unknown): CalcMaster {
   if (m.schema_version !== CALC_SCHEMA_VERSION) {
     throw new CalcDataError(`calc_master.json schema ${m.schema_version}, expected ${CALC_SCHEMA_VERSION}`);
   }
-  for (const key of ["forms", "moves", "natures", "type_chart"] as const) {
+  for (const key of ["forms", "moves", "natures", "type_chart", "items"] as const) {
     if (!Array.isArray(m[key])) throw new CalcDataError(`calc_master.json has no ${key} list`);
   }
   return m as CalcMaster;
