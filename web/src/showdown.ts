@@ -13,9 +13,12 @@ export function normalizeName(name: string): string {
 
 /** showdown_overrides.csv (header showdown_name,pokemon) as [Showdown name, PokéAPI slug] rows, in file order. */
 export function parseOverrides(csv: string): [string, string][] {
-  return csv.trim().split(/\r?\n/).slice(1).map((line) => line.split(","))
-    .filter((cells) => cells.length === 2 && cells[0].trim() && cells[1].trim())
-    .map(([name, slug]) => [name.trim(), normalizeName(slug)]);
+  return csv.trim().split(/\r?\n/).slice(1).flatMap((line): [string, string][] => {
+    const cells = line.split(",");   // the file has no quoted fields; a row that is not "name,slug" is reported
+    if (cells.length === 2 && cells[0].trim() && cells[1].trim()) return [[cells[0].trim(), normalizeName(cells[1])]];
+    console.warn(`showdown_overrides.csv: row skipped (not "showdown_name,pokemon"): ${line}`);
+    return [];
+  });
 }
 
 const namesOf = new Map<string, string[]>();
@@ -56,8 +59,7 @@ const LABEL: Record<Stat, string> = { hp: "HP", atk: "Atk", def: "Def", spatk: "
 const spread = (values: Record<Stat, number>, skip: number) =>
   STATS.filter((s) => values[s] !== skip).map((s) => `${values[s]} ${LABEL[s]}`).join(" / ");
 
-function memberPaste(master: CalcMaster, form: CalcForm, m: TeamMember): string {
-  const moves = new Map(master.moves.map((mv) => [mv.id, mv.name]));
+function memberPaste(master: CalcMaster, moves: Map<number, string>, form: CalcForm, m: TeamMember): string {
   const evs = spread(m.evs, 0), ivs = spread(m.ivs, 31);
   return [
     showdownName(form) + (m.item ? ` @ ${spelled(m.item)}` : ""),
@@ -77,9 +79,10 @@ function memberPaste(master: CalcMaster, form: CalcForm, m: TeamMember): string 
  */
 export function showdownPaste(master: CalcMaster, team: Team): string {
   const forms = new Map(master.forms.map((f) => [f.poke_id, f]));
+  const moves = new Map(master.moves.map((mv) => [mv.id, mv.name]));
   return team.members.map((m) => {
     const form = forms.get(m.poke_id);
     if (!form) throw new Error(`Pokémon #${m.poke_id} is not in the calculator data.`);
-    return memberPaste(master, form, m);
+    return memberPaste(master, moves, form, m);
   }).join("\n");
 }

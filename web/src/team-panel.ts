@@ -1,7 +1,7 @@
 // Team builder page (#17): a team of up to 6, each member edited in place (form, ability, nature, EVs / IVs, four
 // moves), named teams saved in this browser, a share link, a Showdown paste (#20), and a link that opens a member in
 // the damage calculator.
-// Needs only calc_master.json: no Python engine. DOM only; the logic is in team.ts.
+// Needs only calc_master.json: no Python engine. DOM only; the logic is in team.ts and showdown.ts.
 import { defaultSide, displayName, type CalcMaster } from "./calc";
 import { createPokemonEditor, el } from "./pokemon-editor";
 import { showdownPaste } from "./showdown";
@@ -79,6 +79,7 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
         dirty = true;
         refreshLinks();
         renderClause();
+        paste.hidden = true;   // the paste shown no longer matches the team
         onChange(team);
       } });
       editor.load(sideFromMember(forms.get(m.poke_id)!, m), m.moves, m.item);   // resolved team: the form is in the data
@@ -87,6 +88,7 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
       remove.addEventListener("click", () => {
         team.members.splice(i, 1);
         dirty = true;
+        paste.hidden = true;
         renderMembers();
       });
       box.append(el("div", { className: "team-actions" }, calcLinks.attacker, calcLinks.defender, remove));
