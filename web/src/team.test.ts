@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CalcMaster } from "./calc";
-import { createTeamStore, decodeTeam, resolveTeam, encodeTeam, TEAMS_KEY, TeamLinkError, type Team } from "./team";
+import { createTeamStore, decodeTeam, resolveTeam, withMember, encodeTeam, TEAMS_KEY, TeamLinkError, type Team } from "./team";
 
 /** In-memory Storage: one instance shared by two stores stands for a browser restart. */
 function memoryStorage(): Storage {
@@ -53,6 +53,9 @@ describe("team share link", () => {
     const link = encodeTeam(TEAM);
     expect(reason(link.slice(0, -1))).toBe("truncated");
     expect(reason(link.slice(0, link.length / 2))).toBe("truncated");
+    expect(reason("1.12")).toBe("truncated");   // cut inside the header
+    expect(reason("1.")).toBe("truncated");
+    expect(reason("2.40")).toBe("version");     // another format, even cut short
   });
 
   it("refuses a link that is not a team", () => {
@@ -155,5 +158,44 @@ describe("resolveTeam (a link made with another data snapshot)", () => {
       "Flutter-Mane: 2 moves not in its damaging-move list left out.",
       "Pokémon #727 is not in the calculator data: left out.",
     ]);
+  });
+});
+
+describe("withMember (calculator side -> team)", () => {
+  const MASTER: CalcMaster = {
+    schema_version: 1, level: 50, skipped: [], type_chart: [], natures: [],
+    forms: [
+      { poke_id: 987, species: "Flutter Mane", form: "flutter-mane", types: ["ghost", "fairy"], base_stats: stats(100),
+        abilities: ["protosynthesis"], moves: [247, 585], borrowed_from: null },
+      { poke_id: 727, species: "Incineroar", form: "incineroar", types: ["fire", "dark"], base_stats: stats(90),
+        abilities: ["intimidate"], moves: [53, 247], borrowed_from: null },
+    ],
+    moves: [
+      { id: 247, name: "shadow-ball", type: "ghost", power: 80, damage_class: "special" },
+      { id: 585, name: "moonblast", type: "fairy", power: 95, damage_class: "special" },
+      { id: 53, name: "flamethrower", type: "fire", power: 90, damage_class: "special" },
+    ],
+  };
+  const side = (form: CalcMaster["forms"][number]) =>
+    ({ form, ability: form.abilities[0], nature: "timid", evs: { ...stats(0), spe: 252 }, ivs: stats(31) });
+  const flutter = { poke_id: 987, ability: "protosynthesis", nature: "timid", evs: { ...stats(0), spe: 252 }, ivs: stats(31) };
+
+  it("adds a new member with the side's move, every time it is asked", () => {
+    let team: Team = { name: "", members: [] };
+    team = withMember(MASTER, team, side(MASTER.forms[0]), null, 585);
+    team = withMember(MASTER, team, side(MASTER.forms[0]), null);
+    expect(team.members).toEqual([{ ...flutter, moves: [585] }, { ...flutter, moves: [] }]);
+  });
+
+  it("updates a member, keeping only the moves the new Pokémon can use", () => {
+    const team = { name: "", members: [{ ...flutter, moves: [585, 247] }] };
+    const next = withMember(MASTER, team, side(MASTER.forms[1]), 0);
+    expect(next.members).toEqual([{ ...flutter, poke_id: 727, ability: "intimidate", moves: [247] }]);
+    expect(team.members[0].poke_id).toBe(987);   // the old team is not changed
+  });
+
+  it("refuses a seventh member", () => {
+    const full = { name: "", members: Array.from({ length: 6 }, () => ({ ...flutter, moves: [] })) };
+    expect(() => withMember(MASTER, full, side(MASTER.forms[0]), null)).toThrow(/at most 6/);
   });
 });

@@ -24,6 +24,7 @@ export interface Team {
 /** Version of the share-link format; a link of another version is refused, never guessed. */
 export const LINK_VERSION = 1;
 
+// Positional on purpose (short links): [name, [[poke_id, ability, nature, evs[6], ivs[6], move ids], ...]].
 type Packed = [string, [number, string, string, number[], number[], number[]][]];
 
 const toBase64Url = (text: string) => {
@@ -66,7 +67,8 @@ export function teamError(team: Team): string | null {
   if (team.members.length > MAX_MEMBERS) return `A team has at most ${MAX_MEMBERS} Pokémon.`;
   for (const m of team.members) {
     if (!isInt(m.poke_id) || !isSlug(m.ability) || !isSlug(m.nature)) return "A team member has no valid Pokémon, ability or nature.";
-    if (m.moves.length > MAX_MOVES || !m.moves.every(isInt)) return `A team member has more than ${MAX_MOVES} moves.`;
+    if (m.moves.length > MAX_MOVES) return `A team member has more than ${MAX_MOVES} moves.`;
+    if (!m.moves.every(isInt)) return "A team member has a move that is not a move id.";
     const bad = spreadError(m.evs, m.ivs);
     if (bad) return bad;
   }
@@ -74,12 +76,17 @@ export function teamError(team: Team): string | null {
 }
 
 export function decodeTeam(link: string): Team {
-  const match = /^(\d+)\.(\d+)\.([A-Za-z0-9_-]*)$/.exec(link);
-  if (!match) throw new TeamLinkError(Number.isNaN(parseInt(link, 10)) ? "invalid" : "truncated", "This is not a team link.");
-  const [, version, length, data] = match;
+  const version = /^(\d+)(\.|$)/.exec(link)?.[1];
+  if (version === undefined) throw new TeamLinkError("invalid", "This is not a team link.");
   if (Number(version) !== LINK_VERSION) {
     throw new TeamLinkError("version", `This link uses team format ${version}; this site reads format ${LINK_VERSION}.`);
   }
+  const match = /^\d+\.(\d+)\.([A-Za-z0-9_-]*)$/.exec(link);
+  if (!match) {
+    if (/^\d+(\.\d*)?$/.test(link)) throw new TeamLinkError("truncated", "This team link is incomplete (cut short when copied).");
+    throw new TeamLinkError("invalid", "This team link is damaged.");
+  }
+  const [, length, data] = match;
   if (data.length < Number(length)) throw new TeamLinkError("truncated", "This team link is incomplete (cut short when copied).");
   if (data.length > Number(length)) throw new TeamLinkError("invalid", "This team link is damaged.");
   let packed: unknown;
@@ -153,7 +160,11 @@ export function createTeamStore(storage: () => Storage | null, now: () => Date =
     if (raw === null) return [];
     try {
       const parsed: unknown = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter(isSaved) : [];
+      const teams = Array.isArray(parsed) ? parsed.filter(isSaved) : [];
+      if (!Array.isArray(parsed) || teams.length < parsed.length) {
+        console.warn(`Saved teams: ${Array.isArray(parsed) ? parsed.length - teams.length : "all"} unreadable entries skipped.`);
+      }
+      return teams;
     } catch (e) {
       console.warn("Saved teams are unreadable and will be replaced on the next save:", e);
       return [];
@@ -192,7 +203,8 @@ export function createTeamStore(storage: () => Storage | null, now: () => Date =
 export function browserStorage(): Storage | null {
   try {
     return window.localStorage;
-  } catch {
+  } catch (e) {
+    console.warn("localStorage is not available; teams cannot be saved:", e);
     return null;
   }
 }
@@ -234,10 +246,18 @@ export function resolveTeam(master: CalcMaster, team: Team): { team: Team; notes
   return { team: { name: team.name, members }, notes };
 }
 
-/** A calculator side as a team member, keeping `moves`. */
-export function memberFromSide(side: SideInput, moves: number[]): TeamMember {
-  return { poke_id: side.form.poke_id, ability: side.ability, nature: side.nature, evs: { ...side.evs },
-    ivs: { ...side.ivs }, moves: [...moves] };
+/**
+ * The team with a calculator side added (`index` null; the side's move, if any, becomes the first move) or put in
+ * place of member `index` (its moves are kept when the new Pokémon can use them). Throws when the team is full.
+ */
+export function withMember(master: CalcMaster, team: Team, side: SideInput, index: number | null, moveId?: number): Team {
+  const known = new Set(movesFor(master, side.form).moves.map((mv) => mv.id));
+  const base = index === null ? (moveId === undefined ? [] : [moveId]) : team.members[index].moves;
+  const member: TeamMember = { poke_id: side.form.poke_id, ability: side.ability, nature: side.nature,
+    evs: { ...side.evs }, ivs: { ...side.ivs }, moves: base.filter((id) => known.has(id)) };
+  if (index !== null) return { ...team, members: team.members.map((m, i) => (i === index ? member : m)) };
+  if (team.members.length >= MAX_MEMBERS) throw new RangeError(`A team has at most ${MAX_MEMBERS} Pokémon.`);
+  return { ...team, members: [...team.members, member] };
 }
 
 /** A resolved team member as a calculator side (its form must be in the master data). */

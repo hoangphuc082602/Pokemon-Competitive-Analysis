@@ -7,7 +7,6 @@ import {
   MAX_MEMBERS,
   MAX_MOVES,
   MAX_NAME,
-  memberFromSide,
   resolveTeam,
   sideFromMember,
   teamError,
@@ -15,6 +14,7 @@ import {
   type Team,
   type TeamMember,
   type TeamStore,
+  withMember,
 } from "./team";
 
 /** One side of the calculator, as the team panel sees it. */
@@ -71,12 +71,14 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
   const say = (...lines: string[]) => status.replaceChildren(...lines.flatMap((l, i) => (i ? [el("br"), l] : [l])));
   const changed = () => { dirty = true; };
 
-  const sideButtons = {} as Record<SideName, HTMLButtonElement>;
+  const addButtons = {} as Record<SideName, HTMLButtonElement>;
+  const updateButtons = {} as Record<SideName, HTMLButtonElement>;
   const renderSideButtons = () => {
     for (const s of ["attacker", "defender"] as const) {
       const i = editing[s];
-      sideButtons[s].textContent = i === null ? "Add to team" : `Update team member ${i + 1}`;
-      sideButtons[s].disabled = i === null && team.members.length >= MAX_MEMBERS;
+      addButtons[s].disabled = team.members.length >= MAX_MEMBERS;
+      updateButtons[s].hidden = i === null;
+      updateButtons[s].textContent = `Update team member ${(i ?? 0) + 1}`;
     }
   };
 
@@ -135,43 +137,45 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
     renderSideButtons();
   };
 
-  const open = (next: Team, id: string | null, notes: string[] = []) => {
+  const open = (next: Team, id: string | null) => {
     const r = resolveTeam(master, next);
     team = r.team;
     savedId = id;
-    dirty = false;
+    dirty = r.notes.length > 0;   // a repaired team differs from what is stored
     editing.attacker = editing.defender = null;
     share.hidden = true;
     render();
-    return r.notes.concat(notes);
+    return r.notes;
   };
 
-  const discardOk = () => !dirty || team.members.length === 0 ||
+  const discardOk = () => !dirty ||
     confirm("The current team has unsaved changes. Discard them?");
 
+  const putSide = (s: SideName, index: number | null) => {
+    const side = sides[s].read();
+    const bad = spreadError(side.evs, side.ivs);
+    if (bad) return say(`Not added: ${bad}`);
+    try {
+      team = withMember(master, team, side, index, index === null ? sides[s].move?.()?.id : undefined);
+    } catch (e) {
+      return say(e instanceof Error ? e.message : String(e));
+    }
+    const i = index ?? team.members.length - 1;
+    editing[s] = i;
+    say(index === null ? `${displayName(side.form.form)} added to the team as member ${i + 1}.` : `Team member ${i + 1} updated.`);
+    changed();
+    renderMembers();
+    renderSideButtons();
+  };
   for (const s of ["attacker", "defender"] as const) {
-    sideButtons[s] = button("Add to team");
-    sideButtons[s].className = "add-to-team";
-    sideButtons[s].addEventListener("click", () => {
-      const side = sides[s].read();
-      const bad = spreadError(side.evs, side.ivs);
-      if (bad) return say(`Not added: ${bad}`);
+    addButtons[s] = button("Add to team");
+    updateButtons[s] = button("Update team member");
+    addButtons[s].addEventListener("click", () => putSide(s, null));
+    updateButtons[s].addEventListener("click", () => {
       const i = editing[s];
-      if (i !== null && team.members[i]) {
-        team.members[i] = memberFromSide(side, team.members[i].moves);
-        say(`Team member ${i + 1} updated.`);
-      } else {
-        if (team.members.length >= MAX_MEMBERS) return say(`A team has at most ${MAX_MEMBERS} Pokémon.`);
-        const move = s === "attacker" ? sides[s].move?.() : undefined;
-        team.members.push(memberFromSide(side, move ? [move.id] : []));
-        editing[s] = team.members.length - 1;
-        say(`${displayName(side.form.form)} added to the team.`);
-      }
-      changed();
-      renderMembers();
-      renderSideButtons();
+      if (i !== null && team.members[i]) putSide(s, i);
     });
-    sides[s].root.append(sideButtons[s]);
+    sides[s].root.append(el("div", { className: "team-actions side-team" }, addButtons[s], updateButtons[s]));
   }
 
   name.addEventListener("input", () => { team.name = name.value; changed(); });
@@ -221,25 +225,34 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
       () => say("Copy the share link below."));
   });
 
-  // Start: a share link wins (loaded as unsaved), otherwise the most recently saved team.
-  if (location.hash.startsWith(LINK_PREFIX)) {
+  /** A share link in the URL fragment: shown as an unsaved team; false when there is none or it was refused. */
+  const openLink = (): boolean => {
+    if (!location.hash.startsWith(LINK_PREFIX)) return false;
     const link = location.hash.slice(LINK_PREFIX.length);
     history.replaceState(null, "", location.pathname + location.search);   // reloading must not re-open the link
     try {
-      const notes = open(decodeTeam(link), null);
+      const team = decodeTeam(link);
+      if (!discardOk()) return true;
+      const notes = open(team, null);
       dirty = true;
       say("Team opened from a share link. It is not saved: press Save to keep it in this browser. " +
         "Your saved teams are unchanged.", ...notes);
+      return true;
     } catch (e) {
       if (!(e instanceof TeamLinkError)) throw e;
-      const latest = store.list()[0];
-      open(latest ?? { name: "", members: [] }, latest?.id ?? null);
       say(`The team link could not be opened: ${e.message} Your saved teams are unchanged.`);
+      return false;
     }
-  } else {
+  };
+  // A link pasted into a tab already on this page changes only the fragment: no reload.
+  window.addEventListener("hashchange", () => { openLink(); });
+
+  // Start: a share link wins (loaded as unsaved), otherwise the most recently saved team.
+  if (!openLink()) {
+    const refused = status.textContent ?? "";   // a refused link's message, kept above the repair notes
     const latest = store.list()[0];
     const notes = open(latest ?? { name: "", members: [] }, latest?.id ?? null);
-    if (notes.length) say(...notes);
+    if (refused || notes.length) say(...[refused, ...notes].filter(Boolean));
   }
   root.hidden = false;
 }
