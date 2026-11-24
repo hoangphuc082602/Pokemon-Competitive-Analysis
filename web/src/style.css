@@ -178,6 +178,7 @@ sup.src { vertical-align: super; line-height: 0; }
 .team button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .team button:disabled { opacity: 0.4; cursor: default; }
 .team input[readonly] { width: 100%; margin-bottom: 8px; }
+.team .paste { width: 100%; box-sizing: border-box; margin-bottom: 8px; font-family: ui-monospace, monospace; font-size: 0.85rem; }
 .team-list { list-style: none; padding: 0; margin: 8px 0; }
 .team-list > li { margin-bottom: 12px; }
 .team-list a { color: var(--accent); align-self: center; }

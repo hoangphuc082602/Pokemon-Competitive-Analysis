@@ -1,8 +1,10 @@
 // Team builder page (#17): a team of up to 6, each member edited in place (form, ability, nature, EVs / IVs, four
-// moves), named teams saved in this browser, a share link, and a link that opens a member in the damage calculator.
+// moves), named teams saved in this browser, a share link, a Showdown paste (#20), and a link that opens a member in
+// the damage calculator.
 // Needs only calc_master.json: no Python engine. DOM only; the logic is in team.ts.
 import { defaultSide, displayName, type CalcMaster } from "./calc";
 import { createPokemonEditor, el } from "./pokemon-editor";
+import { showdownPaste } from "./showdown";
 import {
   calcLink,
   decodeTeam,
@@ -36,14 +38,15 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
   const saved = el("select");
   const button = (text: string) => el("button", { type: "button", textContent: text });
   const saveBtn = button("Save"), newBtn = button("New team"), deleteBtn = button("Delete saved team"),
-    shareBtn = button("Share link"), addBtn = button("Add Pokémon");
+    shareBtn = button("Share link"), pasteBtn = button("Showdown paste"), addBtn = button("Add Pokémon");
   const share = el("input", { type: "text", readOnly: true, hidden: true, ariaLabel: "Share link" });
+  const paste = el("textarea", { readOnly: true, hidden: true, rows: 12, className: "paste", ariaLabel: "Showdown paste" });
   const list = el("ol", { className: "team-list" });
   const clause = el("p", { className: "down", role: "alert", hidden: true });
   root.append(
     el("div", { className: "filters" }, el("label", {}, "Team name", name), el("label", {}, "Saved teams", saved)),
-    el("div", { className: "team-actions" }, saveBtn, newBtn, deleteBtn, shareBtn),
-    share, status, clause, list,
+    el("div", { className: "team-actions" }, saveBtn, newBtn, deleteBtn, shareBtn, pasteBtn),
+    share, paste, status, clause, list,
     el("div", { className: "team-actions" }, addBtn),
   );
 
@@ -98,6 +101,7 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
   const render = () => {
     name.value = team.name;
     share.hidden = true;
+    paste.hidden = true;
     renderSaved();
     renderMembers();
   };
@@ -170,6 +174,20 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
     copied.then(
       () => say("Share link copied. Anyone opening it sees this team; their saved teams are not changed."),
       () => say("Copy the share link below."));
+  });
+
+  pasteBtn.addEventListener("click", () => {
+    const t = current();
+    if (typeof t === "string") return say(`No paste: ${t}`);
+    if (t.members.length === 0) return say("No paste: the team has no Pokémon.");
+    paste.value = showdownPaste(master, t);
+    paste.hidden = false;
+    paste.select();
+    const copied = navigator.clipboard?.writeText(paste.value);   // undefined outside a secure context
+    if (!copied) return say("Copy the Showdown paste below.");
+    copied.then(
+      () => say("Showdown paste copied: import it in Showdown's teambuilder (Import from text)."),
+      () => say("Copy the Showdown paste below."));
   });
 
   /** A share link in the URL fragment: shown as an unsaved team; false when there is none or it was refused. */
