@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Level-50 damage calculator running the project's Python engine in the browser with Pyodide." />
+    <meta name="description" content="Level-50 damage calculator running the project's Python engine in the browser with Pyodide, with a team builder saved in the browser and share links." />
     <title>VGC Damage Calculator</title>
   </head>
   <body>
@@ -14,7 +14,8 @@
         One attack, level 50: damage range, share of the defender's HP and a KO estimate. The numbers come from the
         project's own Python damage engine (<code>python/calculations/</code>, tested with pytest), run in your browser
         with <a href="https://pyodide.org/">Pyodide</a>. Game data (base stats, typing, abilities, learnsets, natures, type
-        chart) is from PokéAPI, limited to the Pokémon in the Meta Overview.
+        chart) is from PokéAPI, limited to the Pokémon in the Meta Overview. Below the result, build a team of up to six,
+        load any member as attacker or defender, save teams in this browser and share a team as a link.
       </p>
       <p class="notice" role="note">
         <strong>Not modelled yet:</strong> spread-move reduction, critical hits, weather and terrain, burn, item and
@@ -54,6 +55,10 @@
           <strong>one hit</strong>: “2HKO” means one hit takes at least half the HP, as the engine counts it, not the sum of
           two different rolls. This is a calculation from game mechanics, not observed battle data.
         </p>
+      </section>
+
+      <section id="team" class="team" aria-labelledby="team-title" hidden>
+        <h2 id="team-title">Team</h2>
       </section>
     </main>
 

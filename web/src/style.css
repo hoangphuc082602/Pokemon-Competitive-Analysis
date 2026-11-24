@@ -169,3 +169,17 @@ sup.src { vertical-align: super; line-height: 0; }
 .spread input { width: 100%; min-width: 0; box-sizing: border-box; }
 .side details { margin-top: 8px; font-size: 0.85rem; color: var(--muted); }
 .result-main { font-size: 1.1rem; margin: 4px 0; }
+.team-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.team button, .add-to-team {
+  font: inherit; font-size: 0.9rem; color: var(--text); background: var(--surface); cursor: pointer;
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px;
+}
+.team button:hover:not(:disabled), .add-to-team:hover:not(:disabled) { border-color: var(--accent); }
+.team button:focus-visible, .add-to-team:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.team button:disabled, .add-to-team:disabled { opacity: 0.4; cursor: default; }
+.add-to-team { margin-top: 10px; }
+.team input[readonly] { width: 100%; margin-bottom: 8px; }
+.team-list { padding-left: 1.5em; margin: 8px 0; }
+.member { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.member-moves { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; margin-top: 6px; }
+.member-moves select { min-width: 0; width: 100%; }

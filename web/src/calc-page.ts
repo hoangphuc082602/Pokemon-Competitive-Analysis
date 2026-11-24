@@ -16,6 +16,8 @@ import {
   type Stats,
 } from "./calc";
 import { loadEngine, pythonErrorMessage, type Engine } from "./engine";
+import { browserStorage, createTeamStore } from "./team";
+import { mountTeamPanel, type SideControl } from "./team-panel";
 
 const BASE = `${import.meta.env.BASE_URL}data/`;
 const STAT_LABEL: Record<string, string> = { hp: "HP", atk: "Atk", def: "Def", spatk: "SpA", spdef: "SpD", spe: "Spe" };
@@ -42,22 +44,19 @@ function natureLabel(n: CalcMaster["natures"][number]): string {
     ? `${name} (+${STAT_LABEL[n.increased]} −${STAT_LABEL[n.decreased]})` : `${name} (neutral)`;
 }
 
-interface SidePanel {
-  read(): SideInput;
-  move?: () => CalcMove | undefined;
-}
-
-function spreadInputs(legend: string, value: number, max: number): { box: HTMLFieldSetElement; read: () => Stats } {
+function spreadInputs(legend: string, value: number, max: number):
+  { box: HTMLFieldSetElement; read: () => Stats; write: (v: Stats) => void } {
   const inputs = STATS.map((s) => el("input", { type: "number", min: "0", max: String(max), step: "1", value: String(value),
     inputMode: "numeric", ariaLabel: `${legend} ${STAT_LABEL[s]}` }));
   const box = el("fieldset", { className: "spread" }, el("legend", { textContent: legend }),
     ...STATS.map((s, i) => el("label", {}, STAT_LABEL[s], inputs[i])));
   const read = () => Object.fromEntries(STATS.map((s, i) => [s, Number(inputs[i].value)])) as Stats;
-  return { box, read };
+  const write = (v: Stats) => STATS.forEach((s, i) => { inputs[i].value = String(v[s]); });
+  return { box, read, write };
 }
 
 function buildSide(root: HTMLFieldSetElement, master: CalcMaster, preferred: string, attacker: boolean,
-  onChange: () => void): SidePanel {
+  onChange: () => void): SideControl {
   const forms = [...master.forms].sort((a, b) => displayName(a.form).localeCompare(displayName(b.form)));
   const byId = new Map(forms.map((f) => [String(f.poke_id), f]));
   const start = forms.find((f) => f.form === preferred) ?? forms[0];
@@ -102,8 +101,19 @@ function buildSide(root: HTMLFieldSetElement, master: CalcMaster, preferred: str
 
   const moveById = new Map(master.moves.map((m) => [String(m.id), m]));
   return {
+    root,
     read: () => ({ form: form(), ability: ability.value, nature: nature.value, evs: evs.read(), ivs: ivs.read() }),
     move: attacker ? () => moveById.get(move.value) : undefined,
+    load(s, moveId) {
+      pokemon.value = String(s.form.poke_id);
+      refreshForm();
+      ability.value = s.ability;
+      nature.value = s.nature;
+      evs.write(s.evs);
+      ivs.write(s.ivs);
+      if (attacker && moveId !== undefined && moveById.has(String(moveId))) move.value = String(moveId);
+      onChange();
+    },
   };
 }
 
@@ -155,6 +165,7 @@ async function main() {
   const attacker = buildSide($("attacker"), master, DEFAULTS.attacker, true, calculate);
   const defender = buildSide($("defender"), master, DEFAULTS.defender, false, calculate);
   $("calc").hidden = false;
+  mountTeamPanel($("team"), master, createTeamStore(browserStorage), { attacker, defender });
 
   status.textContent = "Loading the Python engine (Pyodide, about 5.6 MB on the first visit, then cached)…";
   try {
