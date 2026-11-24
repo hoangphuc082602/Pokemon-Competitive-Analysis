@@ -17,7 +17,7 @@ the 16 rolls), type modifier, STAB, category. Only the mechanics the engine mode
 Team analysis (#19), team_summary / team_summary_json:
     {"members": [side + {"name": str, "item": "choice-scarf" | ""}], "type_chart": [...]}   # at most 6 members
 Response: per member level-50 stats, Speed after held item (speed_calc: Choice Scarf, Iron Ball) and role (role_label
-thresholds on level-50 stats); speed tiers (fastest first); role counts; for every attacking type in the chart, each
+thresholds on level-50 stats); speed tiers (fastest first, with the member's index in the request); role counts; for every attacking type in the chart, each
 member's multiplier (type_calc, defender ability included) and the number of members weak / resisting / immune;
 synergy score = (resisted + immune) - weak over that table (team_synergy). Weather, Tera, field effects: not modelled.
 """
@@ -110,7 +110,7 @@ def team_summary(request):
     if len(members) > MAX_MEMBERS:
         raise ValueError(f"a team has at most {MAX_MEMBERS} Pokémon, got {len(members)}")
     rows = [_team_member(m) for m in members]
-    tiers = sorted(rows, key=lambda r: -r["speed"])   # stable: ties keep team order
+    order = sorted(range(len(rows)), key=lambda i: -rows[i]["speed"])   # stable: ties keep team order
     chart = {(str(a).lower(), str(d).lower()): float(m) for a, d, m in request["type_chart"]}
     table = []
     for attack_type in sorted({a for a, _ in chart}):
@@ -121,7 +121,7 @@ def team_summary(request):
                       "resist": sum(0 < x < 1 for x in mults), "immune": sum(x == 0 for x in mults)})
     synergy = calculate_team_synergy({r["type"]: r["weak"] for r in table},
                                      {r["type"]: r["resist"] + r["immune"] for r in table})
-    return {"members": rows, "speed_tiers": [{"name": r["name"], "speed": r["speed"]} for r in tiers],
+    return {"members": rows, "speed_tiers": [{"index": i, "name": rows[i]["name"], "speed": rows[i]["speed"]} for i in order],
             "roles": analyze_role_distribution(rows), "type_table": table, "synergy_score": synergy}
 
 

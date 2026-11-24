@@ -174,10 +174,17 @@ def test_team_summary_speed_tiers_fastest_first_with_held_items(type_chart_df):
             member("timid", ["grass"], [100] * 6, nature="timid", evs=_spread(spe=252)),      # 167
             member("ball", ["ground"], [100] * 6, item="iron-ball")]                          # 60
     out = team_summary(summary_request(team, type_chart_df))
-    assert out["speed_tiers"] == [{"name": "scarf", "speed": 180}, {"name": "timid", "speed": 167},
-                                  {"name": "slow", "speed": 120}, {"name": "ball", "speed": 60}]
+    assert out["speed_tiers"] == [{"index": 1, "name": "scarf", "speed": 180}, {"index": 2, "name": "timid", "speed": 167},
+                                  {"index": 0, "name": "slow", "speed": 120}, {"index": 3, "name": "ball", "speed": 60}]
     # the Speed stat itself is the unmodified one; only the tier applies the item
     assert [m["stats"]["spe"] for m in out["members"]] == [120, 120, 167, 120]
+
+
+def test_team_summary_speed_tiers_tell_apart_two_members_with_the_same_name(type_chart_df):
+    from python.calculations.calc_facade import team_summary
+    team = [member("twin", ["fire"], [100] * 6), member("twin", ["fire"], [100] * 6, item="choice-scarf")]
+    tiers = team_summary(summary_request(team, type_chart_df))["speed_tiers"]
+    assert [(t["index"], t["speed"]) for t in tiers] == [(1, 180), (0, 120)]
 
 
 def test_team_summary_roles_use_level_50_stats(type_chart_df):

@@ -17,13 +17,12 @@ const table = (head: string[], rows: HTMLTableRowElement[], numericFrom = 1) =>
 const td = (text: string, className = "num") => el("td", { className, textContent: text });
 
 function render(out: HTMLElement, s: TeamSummary, team: Team) {
-  const items = new Map(   // species clause: one Pokémon per name
-    s.members.map((m, i) => [m.name, team.members[i].item]));
   const speed = el("section", {}, el("h3", { textContent: "Speed tiers" }),
     el("p", { className: "context", textContent: "Level-50 Speed, fastest first, with Choice Scarf (×1.5) and Iron Ball (×0.5). " +
       "Not included: Tailwind, Trick Room, paralysis, stat stages, speed abilities." }),
     table(["Pokémon", "Speed"], s.speed_tiers.map((t) => el("tr", {},
-      el("th", { scope: "row", textContent: t.name + (items.get(t.name) ? ` (${displayName(items.get(t.name)!)})` : "") }),
+      el("th", { scope: "row", textContent: `${t.index + 1}. ${t.name}` +
+        (team.members[t.index].item ? ` (${displayName(team.members[t.index].item)})` : "") }),
       td(String(t.speed))))));
 
   const roleCounts = (Object.entries(s.roles) as [Role, number][]).map(([r, n]) => `${roleLabel(r)}: ${n}`).join(" · ");
@@ -31,15 +30,15 @@ function render(out: HTMLElement, s: TeamSummary, team: Team) {
     el("p", { className: "context", textContent: "Engine rule on level-50 stats: Atk or SpA ≥ 170 with Spe ≥ 150 = sweeper; " +
       "otherwise Def or SpD ≥ 150 = wall; else balanced. A stat-based label, not how the Pokémon is used in battles." }),
     el("p", { textContent: roleCounts }),
-    table(["Pokémon", "Role", "Atk", "SpA", "Def", "SpD", "Spe"], s.members.map((m) => el("tr", {},
-      el("th", { scope: "row", textContent: m.name }), td(roleLabel(m.role), ""),
+    table(["Pokémon", "Role", "Atk", "SpA", "Def", "SpD", "Spe"], s.members.map((m, i) => el("tr", {},
+      el("th", { scope: "row", textContent: `${i + 1}. ${m.name}` }), td(roleLabel(m.role), ""),
       ...(["atk", "spatk", "def", "spdef", "spe"] as const).map((k) => td(String(m.stats[k]))))), 2));
 
   const types = el("section", {}, el("h3", { textContent: "Type weaknesses and resistances" }),
     el("p", { className: "context", textContent: "Damage multiplier of each attacking type on each member (type chart from " +
       "PokéAPI plus the member's defensive ability, e.g. Levitate, Flash Fire); blank = neutral. Tera, weather and " +
       "attacker abilities are not included." }),
-    table(["Attacking type", ...s.members.map((m) => m.name), "Weak", "Resist", "Immune"], s.type_table.map((r) => el("tr", {},
+    table(["Attacking type", ...s.members.map((m, i) => `${i + 1}. ${m.name}`), "Weak", "Resist", "Immune"], s.type_table.map((r) => el("tr", {},
       el("th", { scope: "row", textContent: displayName(r.type) }),
       ...r.multipliers.map((x) => td(multiplierLabel(x), x > 1 ? "num down" : x < 1 ? "num up" : "num")),
       td(String(r.weak), r.weak >= 3 ? "num down" : "num"), td(String(r.resist)), td(String(r.immune))))));

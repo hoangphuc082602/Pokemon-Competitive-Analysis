@@ -7,7 +7,7 @@ export type Role = "physical_sweeper" | "special_sweeper" | "wall" | "balanced";
 
 export interface TeamSummary {
   members: { name: string; stats: Stats; speed: number; role: Role }[];
-  speed_tiers: { name: string; speed: number }[];
+  speed_tiers: { index: number; name: string; speed: number }[];   // index = position in the team
   roles: Partial<Record<Role, number>>;
   type_table: { type: string; multipliers: number[]; weak: number; resist: number; immune: number }[];
   synergy_score: number;
