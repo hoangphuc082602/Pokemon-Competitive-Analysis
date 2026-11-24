@@ -22,7 +22,8 @@ STATS = ["hp", "atk", "def", "spatk", "spdef", "spe"]
 NATURES = pd.DataFrame([("adamant", 2, 4), ("modest", 4, 2), ("hardy", None, None), ("bold", 3, 2)],
                        columns=["nature_name", "increased_stat", "decreased_stat"])
 NATURE_JSON = {"adamant": {"increased": "atk", "decreased": "spatk"}, "modest": {"increased": "spatk", "decreased": "atk"},
-               "hardy": {"increased": None, "decreased": None}, "bold": {"increased": "def", "decreased": "atk"}}
+               "hardy": {"increased": None, "decreased": None}, "bold": {"increased": "def", "decreased": "atk"},
+               "timid": {"increased": "spe", "decreased": "atk"}}
 
 
 def _spread(**kw):
@@ -154,3 +155,83 @@ def test_the_browser_bundles_exactly_the_modules_the_facade_imports():
     bundled = set(re.findall(r'^import \w+ from "\.\./\.\./(python/[\w/]+\.py)\?raw";', engine_ts, re.M))
     listed = set(re.findall(r'^  "(python/[\w/]+\.py)": \w+,', engine_ts, re.M))
     assert bundled == listed == _engine_closure()
+
+
+# ---- Team summary (#19): speed tiers, roles, type weakness table, synergy score ----
+
+def member(name, types, base, nature="hardy", evs=None, item="", ability="none"):
+    return {**side(types, base, nature, evs=evs, ability=ability), "name": name, "item": item}
+
+
+def summary_request(members, type_chart_df):
+    return {"members": members, "type_chart": type_chart_df[["attack_type", "defense_type", "multiplier"]].values.tolist()}
+
+
+def test_team_summary_speed_tiers_fastest_first_with_held_items(type_chart_df):
+    from python.calculations.calc_facade import team_summary
+    team = [member("slow", ["water"], [100] * 6),                                            # Spe 120
+            member("scarf", ["fire"], [100] * 6, item="choice-scarf"),                        # 180
+            member("timid", ["grass"], [100] * 6, nature="timid", evs=_spread(spe=252)),      # 167
+            member("ball", ["ground"], [100] * 6, item="iron-ball")]                          # 60
+    out = team_summary(summary_request(team, type_chart_df))
+    assert out["speed_tiers"] == [{"index": 1, "name": "scarf", "speed": 180}, {"index": 2, "name": "timid", "speed": 167},
+                                  {"index": 0, "name": "slow", "speed": 120}, {"index": 3, "name": "ball", "speed": 60}]
+    # the Speed stat itself is the unmodified one; only the tier applies the item
+    assert [m["stats"]["spe"] for m in out["members"]] == [120, 120, 167, 120]
+
+
+def test_team_summary_speed_tiers_tell_apart_two_members_with_the_same_name(type_chart_df):
+    from python.calculations.calc_facade import team_summary
+    team = [member("twin", ["fire"], [100] * 6), member("twin", ["fire"], [100] * 6, item="choice-scarf")]
+    tiers = team_summary(summary_request(team, type_chart_df))["speed_tiers"]
+    assert [(t["index"], t["speed"]) for t in tiers] == [(1, 180), (0, 120)]
+
+
+def test_team_summary_roles_use_level_50_stats(type_chart_df):
+    from python.calculations.calc_facade import team_summary
+    sweeper = member("sweeper", ["fire"], [80, 130, 80, 60, 80, 100], nature="adamant", evs=_spread(atk=252, spe=252))
+    # level 50: Atk floor(182 * 1.1) = 200, Spe 152 -> physical sweeper
+    wall = member("wall", ["water"], [100, 80, 130, 80, 100, 50])                     # Def 150 -> wall
+    plain = member("plain", ["grass"], [100] * 6)                                    # all 120 -> balanced
+    out = team_summary(summary_request([sweeper, wall, plain, plain], type_chart_df))
+    assert [m["role"] for m in out["members"]] == ["physical_sweeper", "wall", "balanced", "balanced"]
+    assert out["roles"] == {"physical_sweeper": 1, "wall": 1, "balanced": 2}
+
+
+def test_team_summary_type_table_counts_weak_resist_immune_with_abilities(type_chart_df):
+    from python.calculations.calc_facade import team_summary
+    team = [member("fire", ["fire"], [100] * 6, ability="flash-fire"),
+            member("bird", ["water", "flying"], [100] * 6),
+            member("ghost", ["ghost"], [100] * 6)]
+    out = team_summary(summary_request(team, type_chart_df))
+    table = {r["type"]: (r["multipliers"], r["weak"], r["resist"], r["immune"]) for r in out["type_table"]}
+    assert [r["type"] for r in out["type_table"]] == ["electric", "fairy", "fighting", "fire", "flying", "ghost",
+                                                      "ground", "normal", "water"]   # every attacking type in the chart
+    assert table == {
+        "electric": ([1.0, 4.0, 1.0], 1, 0, 0),
+        "fairy": ([0.5, 1.0, 1.0], 0, 1, 0),
+        "fighting": ([1.0, 1.0, 0.0], 0, 0, 1),
+        "fire": ([0.0, 0.5, 1.0], 0, 1, 1),          # Flash Fire: immune
+        "flying": ([1.0, 1.0, 1.0], 0, 0, 0),
+        "ghost": ([1.0, 1.0, 2.0], 1, 0, 0),
+        "ground": ([2.0, 0.0, 1.0], 1, 0, 1),
+        "normal": ([1.0, 1.0, 0.0], 0, 0, 1),
+        "water": ([2.0, 1.0, 1.0], 1, 0, 0),
+    }
+    # synergy = (resisted + immune) - weak, summed over the table: (2 + 4) - 4
+    assert out["synergy_score"] == 2
+
+
+def test_team_summary_empty_team_and_json_entry_point(type_chart_df):
+    from python.calculations.calc_facade import team_summary, team_summary_json
+    req = summary_request([], type_chart_df)
+    out = team_summary(req)
+    assert out["members"] == [] and out["speed_tiers"] == [] and out["roles"] == {} and out["synergy_score"] == 0
+    assert all(r["weak"] == r["resist"] == r["immune"] == 0 for r in out["type_table"])
+    assert json.loads(team_summary_json(json.dumps(req))) == out
+
+
+def test_team_summary_refuses_more_than_six_members(type_chart_df):
+    from python.calculations.calc_facade import team_summary
+    with pytest.raises(ValueError, match="at most 6"):
+        team_summary(summary_request([member("x", ["fire"], [100] * 6)] * 7, type_chart_df))

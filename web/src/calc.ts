@@ -114,7 +114,8 @@ export function spreadError(evs: Stats, ivs: Stats): string | null {
   return null;
 }
 
-function side(master: CalcMaster, s: SideInput) {
+/** One side of a façade request (calc_facade: types, ability, base stats, nature, EVs / IVs). */
+export function facadeSide(master: CalcMaster, s: SideInput) {
   const n = master.natures.find((x) => x.name === s.nature);
   return { types: s.form.types, ability: s.ability, base_stats: s.form.base_stats,
     nature: { increased: n?.increased ?? null, decreased: n?.decreased ?? null }, evs: s.evs, ivs: s.ivs };
@@ -122,7 +123,7 @@ function side(master: CalcMaster, s: SideInput) {
 
 /** The JSON request of calc_facade.calculate. */
 export function buildRequest(master: CalcMaster, attacker: SideInput, defender: SideInput, move: CalcMove) {
-  return { attacker: side(master, attacker), defender: side(master, defender),
+  return { attacker: facadeSide(master, attacker), defender: facadeSide(master, defender),
     move: { type: move.type, power: move.power, damage_class: move.damage_class }, type_chart: master.type_chart };
 }
 

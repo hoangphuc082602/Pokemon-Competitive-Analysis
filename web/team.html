@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="VGC team builder: up to six Pokémon with spreads and moves, saved in the browser and shared as a link." />
+    <meta name="description" content="VGC team builder: up to six Pokémon with spreads and moves, saved in the browser and shared as a link, with a speed, role and type analysis." />
     <title>VGC Team Builder</title>
   </head>
   <body>
@@ -17,13 +17,15 @@
         defender. Game data (forms, abilities, learnsets, natures) is from PokéAPI, limited to the Pokémon in the Meta
         Overview; moves are limited to the damaging moves the calculator knows. Item clause: no two Pokémon of a team may hold
         the same item (a team breaking it cannot be saved or shared). Items are PokéAPI's holdable battle items; which
-        items a regulation allows is not checked.
+        items a regulation allows is not checked. The team analysis (speed tiers, roles, type weaknesses) runs the
+        project's Python engine in the browser, downloaded only when you ask for it.
       </p>
       <p id="data-status" class="context" role="status" aria-live="polite">Loading the game data…</p>
     </header>
 
     <main class="wrap">
       <section id="team" class="team" aria-label="Team" hidden></section>
+      <section id="analysis" class="team" aria-label="Team analysis" hidden></section>
     </main>
 
     <footer class="wrap">

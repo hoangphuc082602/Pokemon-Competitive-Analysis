@@ -1,9 +1,11 @@
 import "./style.css";
 import { parseCalcMaster } from "./calc";
 import { browserStorage, createTeamStore } from "./team";
+import { mountTeamAnalysis } from "./team-analysis-panel";
 import { mountTeamPanel } from "./team-panel";
 
-// Team builder page (#17): game data only, no Python engine (the damage calculator is a separate page).
+// Team builder page (#17) and team analysis (#19). The Python engine (Pyodide) is loaded only when the visitor asks
+// for the analysis; building and saving teams needs calc_master.json alone.
 const BASE = `${import.meta.env.BASE_URL}data/`;
 
 async function main() {
@@ -18,7 +20,9 @@ async function main() {
     return;
   }
   status.hidden = true;
-  mountTeamPanel(document.getElementById("team")!, master, createTeamStore(browserStorage), "./calc.html");
+  const analyse = mountTeamAnalysis(document.getElementById("analysis")!, master);
+  mountTeamPanel(document.getElementById("team")!, master, createTeamStore(browserStorage), "./calc.html", analyse);
+  document.getElementById("analysis")!.hidden = false;
 }
 
 void main();

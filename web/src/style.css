@@ -183,3 +183,5 @@ sup.src { vertical-align: super; line-height: 0; }
 .team-list a { color: var(--accent); align-self: center; }
 .member-moves { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; margin-top: 6px; }
 .member-moves select { min-width: 0; width: 100%; }
+.team-analysis section { margin: 16px 0; }
+.team-analysis h3 { margin: 0 0 4px; }
