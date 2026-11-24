@@ -7,6 +7,7 @@ import {
   calcLink,
   decodeTeam,
   encodeTeam,
+  itemClauseError,
   MAX_MEMBERS,
   MAX_MOVES,
   MAX_NAME,
@@ -36,12 +37,20 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
     shareBtn = button("Share link"), addBtn = button("Add Pokémon");
   const share = el("input", { type: "text", readOnly: true, hidden: true, ariaLabel: "Share link" });
   const list = el("ol", { className: "team-list" });
+  const clause = el("p", { className: "down", role: "alert", hidden: true });
   root.append(
     el("div", { className: "filters" }, el("label", {}, "Team name", name), el("label", {}, "Saved teams", saved)),
     el("div", { className: "team-actions" }, saveBtn, newBtn, deleteBtn, shareBtn),
-    share, status, list,
+    share, status, clause, list,
     el("div", { className: "team-actions" }, addBtn),
   );
+
+  /** Item clause shown as soon as two members hold the same item; Save and Share link refuse such a team. */
+  const renderClause = () => {
+    const bad = itemClauseError(team);
+    clause.textContent = bad ?? "";
+    clause.hidden = bad === null;
+  };
 
   const say = (...lines: string[]) => status.replaceChildren(...lines.flatMap((l, i) => (i ? [el("br"), l] : [l])));
 
@@ -60,12 +69,13 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
       const refreshLinks = () => {
         for (const side of ["attacker", "defender"] as const) calcLinks[side].href = calcUrl + calcLink(side, team.members[i]);
       };
-      const editor = createPokemonEditor(box, master, { moveSlots: MAX_MOVES, onChange: () => {
-        team.members[i] = memberFromSide(editor.read(), editor.moves());
+      const editor = createPokemonEditor(box, master, { moveSlots: MAX_MOVES, withItem: true, onChange: () => {
+        team.members[i] = memberFromSide(editor.read(), editor.moves(), editor.item());
         dirty = true;
         refreshLinks();
+        renderClause();
       } });
-      editor.load(sideFromMember(forms.get(m.poke_id)!, m), m.moves);   // resolved team: the form is in the data
+      editor.load(sideFromMember(forms.get(m.poke_id)!, m), m.moves, m.item);   // resolved team: the form is in the data
       refreshLinks();
       const remove = button("Remove");
       remove.addEventListener("click", () => {
@@ -78,6 +88,7 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
     }));
     if (team.members.length === 0) list.append(el("li", { className: "muted", textContent: "No Pokémon yet: press “Add Pokémon”." }));
     addBtn.disabled = team.members.length >= MAX_MEMBERS;
+    renderClause();
   };
 
   const render = () => {
@@ -108,7 +119,7 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
   addBtn.addEventListener("click", () => {
     if (team.members.length >= MAX_MEMBERS) return;
     const first = [...master.forms].sort((a, b) => displayName(a.form).localeCompare(displayName(b.form)))[0];
-    team.members.push(memberFromSide(defaultSide(first), []));
+    team.members.push(memberFromSide(defaultSide(first), [], ""));
     dirty = true;
     renderMembers();
   });

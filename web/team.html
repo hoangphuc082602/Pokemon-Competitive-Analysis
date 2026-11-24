@@ -11,11 +11,13 @@
       <nav class="site-nav" aria-label="Pages"><a href="./">Meta Overview</a> <a href="./insights.html">Insights</a> <a href="./calc.html">Damage calc</a> <a href="./team.html" aria-current="page">Team builder</a></nav>
       <h1>Team Builder</h1>
       <p class="lede">
-        Build a team of up to six Pokémon (form, ability, nature, EVs / IVs, four moves) and keep several named teams in
+        Build a team of up to six Pokémon (form, ability, held item, nature, EVs / IVs, four moves) and keep several named teams in
         this browser. No account and no server: teams are stored on this device only, and a share link holds the whole
         team in the address itself. Open any member in the <a href="./calc.html">damage calculator</a> as attacker or
         defender. Game data (forms, abilities, learnsets, natures) is from PokéAPI, limited to the Pokémon in the Meta
-        Overview; moves are limited to the damaging moves the calculator knows.
+        Overview; moves are limited to the damaging moves the calculator knows. Item clause: no two Pokémon of a team may hold
+        the same item (a team breaking it cannot be saved or shared). Items are PokéAPI's holdable battle items; which
+        items a regulation allows is not checked.
       </p>
       <p id="data-status" class="context" role="status" aria-live="polite">Loading the game data…</p>
     </header>

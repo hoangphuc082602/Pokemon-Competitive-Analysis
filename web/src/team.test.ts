@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CalcMaster } from "./calc";
-import { calcLink, createTeamStore, decodeTeam, readCalcLink, resolveTeam, encodeTeam, TEAMS_KEY, TeamLinkError, type Team } from "./team";
+import { calcLink, createTeamStore, decodeTeam, readCalcLink, resolveTeam, teamError, encodeTeam, TEAMS_KEY, TeamLinkError, type Team } from "./team";
 
 /** In-memory Storage: one instance shared by two stores stands for a browser restart. */
 function memoryStorage(): Storage {
@@ -21,9 +21,9 @@ const stats = (v: number) => ({ hp: v, atk: v, def: v, spatk: v, spdef: v, spe: 
 const TEAM: Team = {
   name: "Rain · Pelipper",
   members: [
-    { poke_id: 987, ability: "protosynthesis", nature: "timid", evs: { ...stats(0), hp: 4, spatk: 252, spe: 252 },
+    { poke_id: 987, ability: "protosynthesis", item: "booster-energy", nature: "timid", evs: { ...stats(0), hp: 4, spatk: 252, spe: 252 },
       ivs: { ...stats(31), atk: 0 }, moves: [247, 585, 94, 182] },
-    { poke_id: 727, ability: "intimidate", nature: "careful", evs: { ...stats(0), hp: 252, spdef: 252, atk: 4 },
+    { poke_id: 727, ability: "intimidate", item: "", nature: "careful", evs: { ...stats(0), hp: 252, spdef: 252, atk: 4 },
       ivs: stats(31), moves: [] },
   ],
 };
@@ -66,13 +66,30 @@ describe("team share link", () => {
       return `1.${data.length}.${data}`;
     };
     expect(reason(wrap({ name: "x" }))).toBe("invalid");
-    const member = [987, "protosynthesis", "timid", [0, 0, 0, 252, 4, 252], [31, 31, 31, 31, 31, 31], [247]];
+    const member = [987, "protosynthesis", "timid", [0, 0, 0, 252, 4, 252], [31, 31, 31, 31, 31, 31], [247], "focus-sash"];
     expect(decodeTeam(wrap(["ok", [member]])).members).toHaveLength(1);
     expect(reason(wrap(["seven", Array(7).fill(member)]))).toBe("invalid");
-    expect(reason(wrap(["evs", [[987, "a", "b", [252, 252, 252, 0, 0, 0], member[4], []]]]))).toBe("invalid");
-    expect(reason(wrap(["iv", [[987, "a", "b", member[3], [32, 31, 31, 31, 31, 31], []]]]))).toBe("invalid");
-    expect(reason(wrap(["moves", [[987, "a", "b", member[3], member[4], [1, 2, 3, 4, 5]]]]))).toBe("invalid");
-    expect(reason(wrap(["id", [["987", "a", "b", member[3], member[4], []]]]))).toBe("invalid");
+    expect(reason(wrap(["evs", [[987, "a", "b", [252, 252, 252, 0, 0, 0], member[4], [], ""]]]))).toBe("invalid");
+    expect(reason(wrap(["iv", [[987, "a", "b", member[3], [32, 31, 31, 31, 31, 31], [], ""]]]))).toBe("invalid");
+    expect(reason(wrap(["moves", [[987, "a", "b", member[3], member[4], [1, 2, 3, 4, 5], ""]]]))).toBe("invalid");
+    expect(reason(wrap(["item", [[987, "a", "b", member[3], member[4], [], 7]]]))).toBe("invalid");
+    expect(reason(wrap(["two sashes", [member, member]]))).toBe("invalid");
+    expect(reason(wrap(["id", [["987", "a", "b", member[3], member[4], [], ""]]]))).toBe("invalid");
+  });
+});
+
+describe("item clause", () => {
+  const m = (item: string) => ({ ...TEAM.members[1], item });
+  it("refuses two Pokémon holding the same item, names it", () => {
+    expect(teamError({ name: "", members: [m("focus-sash"), m("leftovers"), m("focus-sash")] }))
+      .toBe("Focus-Sash is held by more than one Pokémon (members 1 and 3); each item at most once per team.");
+  });
+  it("allows any number of Pokémon without an item", () => {
+    expect(teamError({ name: "", members: [m(""), m(""), m("leftovers")] })).toBeNull();
+  });
+  it("does not let a team with a repeated item be saved", () => {
+    const storage = memoryStorage();
+    expect(createTeamStore(() => storage).save({ name: "", members: [m("leftovers"), m("leftovers")] })).toBeNull();
   });
 });
 
@@ -128,7 +145,7 @@ describe("saved teams", () => {
 
 describe("resolveTeam (a link made with another data snapshot)", () => {
   const MASTER: CalcMaster = {
-    schema_version: 1, level: 50, skipped: [], type_chart: [],
+    schema_version: 2, level: 50, items: [{ name: "focus-sash", category: "held-items" }], skipped: [], type_chart: [],
     forms: [{ poke_id: 987, species: "Flutter Mane", form: "flutter-mane", types: ["ghost", "fairy"], base_stats: stats(100),
       abilities: ["protosynthesis"], moves: [247, 585], borrowed_from: null }],
     moves: [
@@ -140,7 +157,7 @@ describe("resolveTeam (a link made with another data snapshot)", () => {
   };
 
   it("keeps a team the data knows unchanged", () => {
-    const team = { name: "ok", members: [{ ...TEAM.members[0], moves: [247, 585] }] };
+    const team = { name: "ok", members: [{ ...TEAM.members[0], item: "focus-sash", moves: [247, 585] }] };
     expect(resolveTeam(MASTER, team)).toEqual({ team, notes: [] });
   });
 
@@ -151,10 +168,11 @@ describe("resolveTeam (a link made with another data snapshot)", () => {
     ] };
     const r = resolveTeam(MASTER, team);
     expect(r.team).toEqual({ name: "old", members: [
-      { ...TEAM.members[0], ability: "protosynthesis", nature: "hardy", moves: [247, 585] }] });
+      { ...TEAM.members[0], ability: "protosynthesis", nature: "hardy", item: "", moves: [247, 585] }] });
     expect(r.notes).toEqual([
       "Flutter-Mane: ability cloud-nine replaced by Protosynthesis.",
       "Flutter-Mane: nature brave replaced by Hardy.",
+      "Flutter-Mane: item booster-energy is not in the item list: removed.",
       "Flutter-Mane: 2 moves not in its damaging-move list left out.",
       "Pokémon #727 is not in the calculator data: left out.",
     ]);

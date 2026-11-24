@@ -9,6 +9,9 @@ Run after export_web (it reads the species_forms.json that export wrote). Writes
     moves       only the moves in those learnsets that have a base power and a physical / special damage class
     natures     name, increased / decreased stat (null for neutral natures)
     type_chart  [attack_type, defense_type, multiplier] for every pair that is not 1x
+    items       (schema 2, team builder #17) the items a Pokémon can usefully hold in battle, by name: PokéAPI
+                categories HELD_CATEGORIES plus every berry (category "berries"), except baking / catching berries.
+                Which items a regulation allows is not modelled.
 Mechanics only (PokéAPI, BR-16): nothing from Showdown. The crawled ability and learnset tables have no rows for
 alternate forms (poke_id >= 10001); such a form gets the rows of its species' default form (poke_id = species_id)
 and `borrowed_from` names that poke_id, so the UI can say so. Typing and base stats are never borrowed.
@@ -24,11 +27,14 @@ import pandas as pd
 from python.analytics.export_web import FORBIDDEN
 from python.calculations.nature_calc import STAT_MAPPING
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2   # 2: items (#17)
 STATS = ["hp", "atk", "def", "spatk", "spdef", "spe"]
 FILES = ("stats_raw.csv", "data_type.csv", "type_effectiveness.csv", "ability_raw.csv", "pokemon_ability.csv",
-         "data_damage_class.csv", "move_raw.csv", "pokemon_moves.csv", "pokemon_nature_info.csv")
+         "data_damage_class.csv", "move_raw.csv", "pokemon_moves.csv", "pokemon_nature_info.csv", "item_raw.csv")
 DAMAGING = ("physical", "special")
+HELD_CATEGORIES = ("held-items", "choice", "type-enhancement", "type-protection", "in-a-pinch", "picky-healing",
+                   "bad-held-items", "species-specific", "plates", "mega-stones")
+NOT_HELD_BERRIES = ("baking-only", "catching-bonus")
 
 
 class CalcMasterError(RuntimeError):
@@ -99,8 +105,18 @@ def build(master: Path, forms: list[dict]) -> dict:
     te = t["type_effectiveness.csv"]
     chart = [[types[int(a)], types[int(d)], float(m)]
              for a, d, m in zip(te["attack_type_id"], te["defense_type_id"], te["multiplier"]) if float(m) != 1.0]
+    items = _held_items(t["item_raw.csv"])
     return {"schema_version": SCHEMA_VERSION, "level": 50, "forms": out_forms, "skipped": skipped,
-            "moves": [damaging[m] for m in used], "natures": natures, "type_chart": chart}
+            "moves": [damaging[m] for m in used], "natures": natures, "type_chart": chart, "items": items}
+
+
+def _held_items(it: pd.DataFrame) -> list[dict]:
+    """Holdable battle items, one row per name (the crawl repeats some names), sorted by name; berries grouped."""
+    name, cat = it["item_name"].astype(str), it["category"].astype(str)
+    berry = name.str.endswith("-berry") & ~cat.isin(NOT_HELD_BERRIES)
+    keep = pd.DataFrame({"name": name, "category": cat.where(~berry, "berries")})[cat.isin(HELD_CATEGORIES) | berry]
+    keep = keep.drop_duplicates("name").sort_values("name")
+    return [{"name": n, "category": c} for n, c in zip(keep["name"], keep["category"])]
 
 
 def main(argv=None) -> int:
@@ -122,7 +138,8 @@ def main(argv=None) -> int:
           f"borrowed abilities / learnset from the default form: {sum(f['borrowed_from'] is not None for f in fs)}; "
           f"no learnset: {sum(not f['moves'] for f in fs)} {[f['form'] for f in fs if not f['moves']][:10]}; "
           f"no ability: {sum(not f['abilities'] for f in fs)}")
-    print(f"  moves {len(data['moves'])}, natures {len(data['natures'])}, type chart pairs != 1x {len(data['type_chart'])}")
+    print(f"  moves {len(data['moves'])}, natures {len(data['natures'])}, type chart pairs != 1x {len(data['type_chart'])}, "
+          f"items {len(data['items'])} (unique names: {len({i['name'] for i in data['items']}) == len(data['items'])})")
     return 0
 
 

@@ -14,7 +14,7 @@ import {
 
 const stats = (v: number) => ({ hp: v, atk: v, def: v, spatk: v, spdef: v, spe: v });
 const MASTER: CalcMaster = {
-  schema_version: 1,
+  schema_version: 2,
   level: 50,
   forms: [
     { poke_id: 6, species: "Charizard", form: "charizard", types: ["fire", "flying"], base_stats: stats(80),
@@ -32,6 +32,7 @@ const MASTER: CalcMaster = {
     { name: "modest", increased: "spatk", decreased: "atk" },
   ],
   type_chart: [["fire", "grass", 2]],
+  items: [{ name: "leftovers", category: "held-items" }],
 };
 
 describe("parseCalcMaster", () => {
@@ -39,7 +40,8 @@ describe("parseCalcMaster", () => {
     expect(parseCalcMaster(JSON.parse(JSON.stringify(MASTER)))).toEqual(MASTER);
   });
   it("refuses another schema version or a missing list", () => {
-    expect(() => parseCalcMaster({ ...MASTER, schema_version: 2 })).toThrow(CalcDataError);
+    expect(() => parseCalcMaster({ ...MASTER, schema_version: 1 })).toThrow(CalcDataError);
+    expect(() => parseCalcMaster({ ...MASTER, items: undefined })).toThrow(CalcDataError);
     expect(() => parseCalcMaster({ ...MASTER, forms: undefined })).toThrow(CalcDataError);
   });
 });

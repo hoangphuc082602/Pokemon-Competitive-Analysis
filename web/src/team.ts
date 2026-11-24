@@ -11,6 +11,7 @@ export const MAX_MEMBERS = 6, MAX_MOVES = 4, MAX_NAME = 60;
 export interface TeamMember {
   poke_id: number;
   ability: string;
+  item: string;      // held item name, "" = no item; at most one Pokémon per item (item clause)
   nature: string;
   evs: Stats;
   ivs: Stats;
@@ -25,8 +26,8 @@ export interface Team {
 /** Version of the share-link format; a link of another version is refused, never guessed. */
 export const LINK_VERSION = 1;
 
-// Positional on purpose (short links): [name, [[poke_id, ability, nature, evs[6], ivs[6], move ids], ...]].
-type Packed = [string, [number, string, string, number[], number[], number[]][]];
+// Positional on purpose (short links): [name, [[poke_id, ability, nature, evs[6], ivs[6], move ids, item], ...]].
+type Packed = [string, [number, string, string, number[], number[], number[], string][]];
 
 const toBase64Url = (text: string) => {
   let bin = "";
@@ -42,7 +43,7 @@ const fromBase64Url = (data: string) => {
 /** "<version>.<payload length>.<base64url JSON>": the length makes a truncated link detectable. */
 export function encodeTeam(team: Team): string {
   const packed: Packed = [team.name, team.members.map((m) =>
-    [m.poke_id, m.ability, m.nature, STATS.map((s) => m.evs[s]), STATS.map((s) => m.ivs[s]), m.moves])];
+    [m.poke_id, m.ability, m.nature, STATS.map((s) => m.evs[s]), STATS.map((s) => m.ivs[s]), m.moves, m.item])];
   const data = toBase64Url(JSON.stringify(packed));
   return `${LINK_VERSION}.${data.length}.${data}`;
 }
@@ -62,7 +63,15 @@ const isSlug = (v: unknown): v is string => typeof v === "string" && v.length > 
 const isSpread = (v: unknown): v is number[] => Array.isArray(v) && v.length === STATS.length && v.every(isInt);
 const unpack = (v: number[]) => Object.fromEntries(STATS.map((s, i) => [s, v[i]])) as Stats;
 
-/** Legal team shape, the same limits as the calculator (6 members, 4 moves, EV / IV rules); null when legal. */
+const isItem = (v: unknown): v is string => v === "" || isSlug(v);
+
+/** "1 and 3", "1, 2 and 4". */
+const listed = (n: number[]) => (n.length < 2 ? String(n[0]) : `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`);
+
+/**
+ * Legal team shape, the same limits as the calculator (6 members, 4 moves, EV / IV rules) plus the item clause (no two
+ * Pokémon hold the same item; any number may hold none); null when legal.
+ */
 export function teamError(team: Team): string | null {
   if (typeof team.name !== "string" || team.name.length > MAX_NAME) return `The team name must be at most ${MAX_NAME} characters.`;
   if (team.members.length > MAX_MEMBERS) return `A team has at most ${MAX_MEMBERS} Pokémon.`;
@@ -70,8 +79,21 @@ export function teamError(team: Team): string | null {
     if (!isInt(m.poke_id) || !isSlug(m.ability) || !isSlug(m.nature)) return "A team member has no valid Pokémon, ability or nature.";
     if (m.moves.length > MAX_MOVES) return `A team member has more than ${MAX_MOVES} moves.`;
     if (!m.moves.every(isInt)) return "A team member has a move that is not a move id.";
+    if (!isItem(m.item)) return "A team member has an item that is not an item name.";
     const bad = spreadError(m.evs, m.ivs);
     if (bad) return bad;
+  }
+  return itemClauseError(team);
+}
+
+/** Item clause: the first item held by two or more members, as a message; null when every item is held once. */
+export function itemClauseError(team: Team): string | null {
+  const holders = new Map<string, number[]>();
+  team.members.forEach((m, i) => { if (m.item) holders.set(m.item, [...(holders.get(m.item) ?? []), i + 1]); });
+  for (const [item, members] of holders) {
+    if (members.length > 1) {
+      return `${displayName(item)} is held by more than one Pokémon (members ${listed(members)}); each item at most once per team.`;
+    }
   }
   return null;
 }
@@ -102,11 +124,12 @@ export function decodeTeam(link: string): Team {
   const [name, rows] = packed as [string, unknown[]];
   const members: TeamMember[] = [];
   for (const row of rows) {
-    if (!Array.isArray(row) || row.length !== 6 || !isInt(row[0]) || !isSlug(row[1]) || !isSlug(row[2]) ||
-      !isSpread(row[3]) || !isSpread(row[4]) || !Array.isArray(row[5])) {
+    if (!Array.isArray(row) || row.length !== 7 || !isInt(row[0]) || !isSlug(row[1]) || !isSlug(row[2]) ||
+      !isSpread(row[3]) || !isSpread(row[4]) || !Array.isArray(row[5]) || !isItem(row[6])) {
       throw new TeamLinkError("invalid", "This link contains a Pokémon it cannot read.");
     }
-    members.push({ poke_id: row[0], ability: row[1], nature: row[2], evs: unpack(row[3]), ivs: unpack(row[4]), moves: row[5] });
+    members.push({ poke_id: row[0], ability: row[1], item: row[6], nature: row[2], evs: unpack(row[3]), ivs: unpack(row[4]),
+      moves: row[5] });
   }
   const team = { name, members };
   const bad = teamError(team);
@@ -125,7 +148,8 @@ export interface SavedTeam extends Team {
 export interface TeamStore {
   /** Saved teams, newest first; [] when storage is unavailable or unreadable. */
   list(): SavedTeam[];
-  /** Saves a new team, or replaces the team with this id; null when the browser refused to store it. */
+  /** Saves a new team, or replaces the team with this id; null when the team is illegal (teamError) or the browser
+   *  refused to store it. */
   save(team: Team, id?: string): SavedTeam | null;
   /** False when nothing was deleted (unknown id or storage unavailable). */
   remove(id: string): boolean;
@@ -187,6 +211,11 @@ export function createTeamStore(storage: () => Storage | null, now: () => Date =
   return {
     list: () => (read() ?? []).sort((a, b) => b.saved_at.localeCompare(a.saved_at)),
     save(team, id) {
+      const bad = teamError(team);
+      if (bad) {
+        console.warn("Team not saved:", bad);
+        return null;
+      }
       const teams = read();
       if (teams === null) return null;
       const saved: SavedTeam = { id: id ?? newId(), saved_at: now().toISOString(), name: team.name, members: team.members };
@@ -213,11 +242,13 @@ export function browserStorage(): Storage | null {
 /**
  * Checks a team (from a link or storage) against the calculator data: Pokémon not in the data are left out, an
  * unknown ability / nature is replaced by the form's first ability / Hardy, moves outside the form's damaging-move
- * list are dropped. Each change gets a note for the page to show; nothing is changed silently.
+ * list are dropped, an item not in the item list is removed. Each change gets a note for the page to show; nothing
+ * is changed silently. The item clause is not repaired here: teamError reports it.
  */
 export function resolveTeam(master: CalcMaster, team: Team): { team: Team; notes: string[] } {
   const forms = new Map(master.forms.map((f) => [f.poke_id, f]));
   const natures = new Set(master.natures.map((n) => n.name));
+  const items = new Set(master.items.map((i) => i.name));
   const notes: string[] = [];
   const members: TeamMember[] = [];
   for (const m of team.members) {
@@ -227,7 +258,7 @@ export function resolveTeam(master: CalcMaster, team: Team): { team: Team; notes
       continue;
     }
     const who = displayName(form.form);
-    let { ability, nature } = m;
+    let { ability, nature, item } = m;
     if (!form.abilities.includes(ability) && form.abilities.length > 0) {
       notes.push(`${who}: ability ${ability} replaced by ${displayName(form.abilities[0])}.`);
       ability = form.abilities[0];
@@ -236,20 +267,24 @@ export function resolveTeam(master: CalcMaster, team: Team): { team: Team; notes
       notes.push(`${who}: nature ${nature} replaced by Hardy.`);
       nature = "hardy";
     }
+    if (item && !items.has(item)) {
+      notes.push(`${who}: item ${item} is not in the item list: removed.`);
+      item = "";
+    }
     const known = new Set(movesFor(master, form).moves.map((mv) => mv.id));
     const moves = m.moves.filter((id) => known.has(id));
     if (moves.length < m.moves.length) {
       const n = m.moves.length - moves.length;
       notes.push(`${who}: ${n} move${n === 1 ? "" : "s"} not in its damaging-move list left out.`);
     }
-    members.push({ ...m, ability, nature, moves });
+    members.push({ ...m, ability, nature, item, moves });
   }
   return { team: { name: team.name, members }, notes };
 }
 
 /** A calculator side (or a member editor) as a team member. */
-export function memberFromSide(side: SideInput, moves: number[]): TeamMember {
-  return { poke_id: side.form.poke_id, ability: side.ability, nature: side.nature, evs: { ...side.evs },
+export function memberFromSide(side: SideInput, moves: number[], item = ""): TeamMember {
+  return { poke_id: side.form.poke_id, ability: side.ability, item, nature: side.nature, evs: { ...side.evs },
     ivs: { ...side.ivs }, moves: [...moves] };
 }
 

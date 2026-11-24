@@ -1,5 +1,5 @@
 // One Pokémon's set (form, ability, nature, EVs / IVs, moves) as form controls. Shared by the damage calculator
-// (calc-page.ts: attacker with one move, defender with none) and the team builder (team-panel.ts: four moves).
+// (calc-page.ts: attacker with one move, defender with none) and the team builder (team-panel.ts: four moves, item).
 // DOM only; the rules (spread limits, learnsets) are in calc.ts.
 import { defaultSide, displayName, movesFor, STATS, type CalcForm, type CalcMaster, type SideInput, type Stats } from "./calc";
 
@@ -38,8 +38,10 @@ export interface PokemonEditor {
   read(): SideInput;
   /** Picked move ids, in slot order, without blanks or repeats. */
   moves(): number[];
+  /** Held item name, "" = none (always "" without the item control). */
+  item(): string;
   /** Shows this set; moves the form cannot use are left blank. Fires no change event. */
-  load(side: SideInput, moves: number[]): void;
+  load(side: SideInput, moves: number[], item?: string): void;
 }
 
 export interface EditorOptions {
@@ -47,6 +49,8 @@ export interface EditorOptions {
   preferred?: string;
   /** 0 = no move (defender), 1 = one required move (attacker), more = optional slots with a blank (team). */
   moveSlots: number;
+  /** Shows an item control (team builder); the damage engine does not model items. */
+  withItem?: boolean;
   /** Called on every edit made by the user. */
   onChange: () => void;
 }
@@ -55,7 +59,7 @@ export function createPokemonEditor(root: HTMLElement, master: CalcMaster, opts:
   const forms = [...master.forms].sort((a, b) => displayName(a.form).localeCompare(displayName(b.form)));
   const byId = new Map(forms.map((f) => [String(f.poke_id), f]));
   const start = forms.find((f) => f.form === opts.preferred) ?? forms[0];
-  const pokemon = el("select"), ability = el("select"), nature = el("select");
+  const pokemon = el("select"), ability = el("select"), nature = el("select"), item = el("select");
   const moveSelects = Array.from({ length: opts.moveSlots }, () => el("select"));
   const note = el("p", { className: "note" });
   const moveNote = el("p", { className: "note" });
@@ -64,6 +68,15 @@ export function createPokemonEditor(root: HTMLElement, master: CalcMaster, opts:
   const evs = spreadInputs("EVs", 0, 252), ivs = spreadInputs("IVs", 31, 31);
   const types = el("span", { className: "muted" });
   const optional = opts.moveSlots > 1;
+  if (opts.withItem) {
+    item.append(el("option", { value: "", textContent: "— no item —" }));
+    const groups = new Map<string, HTMLOptGroupElement>();
+    for (const it of master.items) {
+      if (!groups.has(it.category)) groups.set(it.category, el("optgroup", { label: displayName(it.category) }));
+      groups.get(it.category)!.append(el("option", { value: it.name, textContent: displayName(it.name) }));
+    }
+    item.append(...[...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, g]) => g));
+  }
 
   const form = (): CalcForm => byId.get(pokemon.value) ?? start;
   const refreshForm = () => {
@@ -90,7 +103,8 @@ export function createPokemonEditor(root: HTMLElement, master: CalcMaster, opts:
   ];
   root.append(
     el("div", { className: "filters" },
-      el("label", {}, "Pokémon", pokemon), el("label", {}, "Ability", ability), el("label", {}, "Nature", nature)),
+      el("label", {}, "Pokémon", pokemon), el("label", {}, "Ability", ability), el("label", {}, "Nature", nature),
+      ...(opts.withItem ? [el("label", {}, "Item", item)] : [])),
     el("p", { className: "context" }, "Type: ", types),
     note,
     ...moveRow,
@@ -103,13 +117,15 @@ export function createPokemonEditor(root: HTMLElement, master: CalcMaster, opts:
   return {
     read: () => ({ form: form(), ability: ability.value, nature: nature.value, evs: evs.read(), ivs: ivs.read() }),
     moves: () => [...new Set(moveSelects.map((s) => Number(s.value)).filter((v) => v > 0))],
-    load(s, moves) {
+    item: () => (opts.withItem ? item.value : ""),
+    load(s, moves, held = "") {
       pokemon.value = String(s.form.poke_id);
       refreshForm();
       ability.value = s.ability;
       nature.value = s.nature;
       evs.write(s.evs);
       ivs.write(s.ivs);
+      if (opts.withItem) item.value = held;
       moveSelects.forEach((sel, i) => {
         const id = moves[i] === undefined ? "" : String(moves[i]);
         if ([...sel.options].some((o) => o.value === id)) sel.value = id;
