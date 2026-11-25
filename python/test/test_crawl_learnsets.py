@@ -60,9 +60,14 @@ def test_abilities_keep_the_form_id_and_the_hidden_flag():
     assert [r["abi_id"] for r in extract_abilities(URSHIFU_RS)] == [260]
 
 
-def test_a_payload_without_abilities_is_an_error():
-    with pytest.raises(ValueError):
-        extract_abilities({"id": 7, "name": "broken", "abilities": []})
+def test_a_form_without_abilities_in_pokeapi_has_no_rows_but_is_not_an_error():
+    """PokéAPI has no abilities yet for some new forms (e.g. /pokemon/10301 zygarde-mega): a real absence."""
+    assert extract_abilities({"id": 10301, "name": "zygarde-mega", "abilities": []}) == []
+
+
+def test_a_payload_without_an_abilities_list_is_an_error():
+    with pytest.raises(KeyError):
+        extract_abilities({"id": 7, "name": "broken"})
 
 
 MEGA_X = {"id": 10034, "name": "charizard-mega-x", "moves": [
