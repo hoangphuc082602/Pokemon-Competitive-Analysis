@@ -82,6 +82,7 @@ def build(master: Path, forms: list[dict]) -> dict:
                                  "power": int(r.power), "damage_class": classes[int(r.damage_class_id)]}
                 for r in mv.itertuples(index=False)}
     pm = t["pokemon_moves.csv"]
+    has_learnset = set(pm["pokemon_id"].astype("int64").tolist())   # any row, damaging or not
     learnsets: dict[int, set[int]] = {}
     for pid, mid in zip(pm["pokemon_id"].astype("int64"), pm["move_id"].astype("int64")):
         if int(mid) in damaging:
@@ -94,16 +95,13 @@ def build(master: Path, forms: list[dict]) -> dict:
             skipped.append(f["form"])
             continue
         default = species_of.get(pid, pid)
-        ability_source = pid if pid in abilities else default
-        move_source = pid if pid in learnsets else default
-        borrowed = {s for s in (ability_source, move_source) if s != pid}
+        own_abilities, own_learnset = pid in abilities, pid in has_learnset
         out_forms.append({"poke_id": pid, "species": f["species"], "form": f["form"],
                           "types": [x for x in (f["type_1"], f.get("type_2")) if x],
                           "base_stats": {s: int(f[s]) for s in STATS},
-                          "abilities": abilities.get(ability_source, []),
-                          "moves": sorted(learnsets.get(move_source, ())),
-                          "borrowed_from": borrowed.pop() if borrowed else None})
-
+                          "abilities": abilities.get(pid if own_abilities else default, []),
+                          "moves": sorted(learnsets.get(pid if own_learnset else default, ())),
+                          "borrowed_from": None if own_abilities and own_learnset or default == pid else default})
     used = sorted({m for f in out_forms for m in f["moves"]})
     natures = [{"name": str(r.nature_name), "increased": _stat(r.increased_stat), "decreased": _stat(r.decreased_stat)}
                for r in t["pokemon_nature_info.csv"].itertuples(index=False)]

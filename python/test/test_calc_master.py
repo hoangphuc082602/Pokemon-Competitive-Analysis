@@ -136,3 +136,13 @@ def test_a_form_with_its_own_learnset_and_abilities_borrows_nothing(master):
     pd.concat([pa, pd.DataFrame([(10194, 266, False)], columns=pa.columns)]).to_csv(master / "pokemon_ability.csv", index=False)
     shadow = next(f for f in build(master, FORMS)["forms"] if f["poke_id"] == 10194)
     assert shadow["abilities"] == ["as-one-spectrier"] and shadow["moves"] == [247] and shadow["borrowed_from"] is None
+
+
+def test_a_form_whose_learnset_has_only_status_moves_keeps_it_and_borrows_nothing(master):
+    """Borrow only where PokéAPI has no learnset rows at all, not where the rows hold no damaging move."""
+    pm = pd.read_csv(master / "pokemon_moves.csv")
+    pd.concat([pm, pd.DataFrame([(10194, 14, 4, 0)], columns=pm.columns)]).to_csv(master / "pokemon_moves.csv", index=False)
+    pa = pd.read_csv(master / "pokemon_ability.csv")
+    pd.concat([pa, pd.DataFrame([(10194, 266, False)], columns=pa.columns)]).to_csv(master / "pokemon_ability.csv", index=False)
+    shadow = next(f for f in build(master, FORMS)["forms"] if f["poke_id"] == 10194)
+    assert shadow["moves"] == [] and shadow["borrowed_from"] is None

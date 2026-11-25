@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from python.crawl_data.pokeapi_crawl import ref_id, run_cli
+
 COLUMNS = ["pokemon_id", "abi_id", "hidden_abi"]
 
 
@@ -20,12 +22,11 @@ def extract_abilities(data: dict) -> list[dict]:
     abilities = data.get("abilities") or []
     if not abilities:
         raise ValueError(f"no abilities in the response for pokemon {data.get('id')}")
-    return [{"pokemon_id": int(data["id"]), "abi_id": int(a["ability"]["url"].rstrip("/").split("/")[-1]),
+    return [{"pokemon_id": int(data["id"]), "abi_id": ref_id(a["ability"]),
              "hidden_abi": bool(a["is_hidden"])} for a in abilities]
 
 
 def main(argv=None) -> int:
-    from python.crawl_data.pokeapi_crawl import run_cli
     return run_cli(argv, __doc__, extract_abilities, COLUMNS, Path("data/raw/pokemon_ability.csv"),
                    "pokemon_abilities")
 

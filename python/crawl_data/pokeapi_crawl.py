@@ -19,6 +19,12 @@ import requests
 
 log = logging.getLogger(__name__)
 RETRY_STATUS = (429, 500, 502, 503, 504)
+POKEMON_URL = "https://pokeapi.co/api/v2/pokemon/"
+
+
+def ref_id(ref: dict) -> int:
+    """Id of a PokéAPI named reference {"name", "url": ".../<id>/"}."""
+    return int(ref["url"].rstrip("/").split("/")[-1])
 
 
 def fetch_json(session, url: str, retries: int = 4, backoff: float = 1.0,
@@ -117,7 +123,7 @@ def run_cli(argv, description: str, extract: Callable[[dict], list[dict]], colum
 
     session = requests.Session()
     ids = args.ids or all_pokemon_ids(session)
-    counts = crawl_rows(ids, lambda pid: fetch_json(session, f"https://pokeapi.co/api/v2/pokemon/{pid}/",
+    counts = crawl_rows(ids, lambda pid: fetch_json(session, f"{POKEMON_URL}{pid}/",
                                                     retries=args.retries),
                         extract, columns, out, failures, progress, args.delay)
     df = pd.read_csv(out)

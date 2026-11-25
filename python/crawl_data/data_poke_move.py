@@ -13,24 +13,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from python.crawl_data.pokeapi_crawl import ref_id, run_cli
+
 VERSION_GROUP = "scarlet-violet"
 COLUMNS = ["pokemon_id", "move_id", "learn_method", "level_learned"]
 
 
-def _id(ref: dict) -> int:
-    return int(ref["url"].rstrip("/").split("/")[-1])
-
-
 def extract_moves(data: dict, version_group: str = VERSION_GROUP) -> list[dict]:
     """Learnset rows of one /pokemon response in `version_group`."""
-    return [{"pokemon_id": int(data["id"]), "move_id": _id(m["move"]),
-             "learn_method": _id(d["move_learn_method"]), "level_learned": int(d["level_learned_at"])}
+    return [{"pokemon_id": int(data["id"]), "move_id": ref_id(m["move"]),
+             "learn_method": ref_id(d["move_learn_method"]), "level_learned": int(d["level_learned_at"])}
             for m in data["moves"] for d in m["version_group_details"]
             if d["version_group"]["name"] == version_group]
 
 
 def main(argv=None) -> int:
-    from python.crawl_data.pokeapi_crawl import run_cli
     return run_cli(argv, __doc__, extract_moves, COLUMNS, Path("data/raw/pokemon_moves.csv"), "pokemon_moves")
 
 
