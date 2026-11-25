@@ -1,63 +1,38 @@
-import requests
-import pandas as pd
-import time
+"""Crawl PokéAPI learnsets per /pokemon entry -> data/raw/pokemon_moves.csv (pokemon_id, move_id, learn_method,
+level_learned), Scarlet / Violet version group only (choosing it per regulation: #37).
 
-BASE_URL = "https://pokeapi.co/api/v2"
-LATEST_VERSION = "scarlet-violet"
+    python -m python.crawl_data.data_poke_move                    # every /pokemon entry, incl. alternate forms (ids >= 10001)
+    python -m python.crawl_data.data_poke_move --ids 6 10034      # small test range (add --to-mysql to load MySQL)
 
-pokemon_moves = []
+pokemon_id is the PokéAPI /pokemon id, so alternate forms get their own learnset (#36). A form with no Scarlet /
+Violet move (e.g. Mega forms) has no rows; pokemon_moves_progress.csv records it with rows = 0, and calc_master then
+borrows the default form's learnset. Resumable, retried with backoff, failures in pokemon_moves_failures.csv: see
+python/crawl_data/pokeapi_crawl.py. With --to-mysql the MySQL table pokemon_moves is rebuilt from the full CSV.
+"""
+from __future__ import annotations
 
-# EXTRACT MOVE DATA
-def extract_moves(data):
-    pokemon_id = data["id"]
-    for move in data["moves"]:
-        move_id = int(
-            move["move"]["url"]
-            .rstrip("/")
-            .split("/")[-1]
-        )
-        for detail in move["version_group_details"]:
-            if(detail["version_group"]["name"] != LATEST_VERSION):
-                continue
-            learn_method = detail["move_learn_method"]
-            learn_method_id = int(
-                learn_method["url"]
-                .rstrip("/")
-                .split("/")[-1]
-            )
+from pathlib import Path
 
-            pokemon_moves.append({
-                "pokemon_id": pokemon_id,
-                "move_id": move_id,
-                "learn_method": learn_method_id,
-                "level_learned":
-                    detail["level_learned_at"]
-            })
+VERSION_GROUP = "scarlet-violet"
+COLUMNS = ["pokemon_id", "move_id", "learn_method", "level_learned"]
 
-# CRAWL DATA
-def crawl_moves(start_id=1, end_id=1025):
-    for poke_id in range(start_id, end_id + 1):
-        response = requests.get(
-            f"{BASE_URL}/pokemon/{poke_id}/"
-        )
-        if response.status_code == 200:
-            data = response.json()
-            extract_moves(data)
-            print(
-                f"SUCCESS {poke_id} - {data['name']}"
-            )
-        else:
-            print(f"FAILED ID {poke_id}")
-        time.sleep(0.3)
-crawl_moves(1, 1025)
 
-# DATAFRAME
-df_moves = pd.DataFrame(pokemon_moves)
-print(df_moves.head())
+def _id(ref: dict) -> int:
+    return int(ref["url"].rstrip("/").split("/")[-1])
 
-# EXPORT CSV
-df_moves.to_csv("data/raw/pokemon_moves.csv",index=False)
 
-# UPLOAD TO SQL
-from python.database.db_connection import engine
-df_moves.to_sql(name="pokemon_moves",con=engine,if_exists="replace",index=False)
+def extract_moves(data: dict, version_group: str = VERSION_GROUP) -> list[dict]:
+    """Learnset rows of one /pokemon response in `version_group`."""
+    return [{"pokemon_id": int(data["id"]), "move_id": _id(m["move"]),
+             "learn_method": _id(d["move_learn_method"]), "level_learned": int(d["level_learned_at"])}
+            for m in data["moves"] for d in m["version_group_details"]
+            if d["version_group"]["name"] == version_group]
+
+
+def main(argv=None) -> int:
+    from python.crawl_data.pokeapi_crawl import run_cli
+    return run_cli(argv, __doc__, extract_moves, COLUMNS, Path("data/raw/pokemon_moves.csv"), "pokemon_moves")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

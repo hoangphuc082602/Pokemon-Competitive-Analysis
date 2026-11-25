@@ -113,3 +113,26 @@ def test_cli_reads_species_forms_and_writes_json(master, tmp_path):
     forms.write_text(json.dumps(FORMS), encoding="utf-8")
     assert main(["--master", str(master), "--forms", str(forms), "--out", str(out)]) == 0
     assert json.loads(out.read_text(encoding="utf-8")) == build(master, FORMS)
+
+
+def test_a_form_with_its_own_abilities_but_no_learnset_borrows_only_the_learnset(master):
+    """#36: PokéAPI gives Mega forms their own ability but no Scarlet / Violet learnset: they share the default form's."""
+    stats = pd.read_csv(master / "stats_raw.csv")
+    pd.concat([stats, pd.DataFrame([(10034, "charizard-mega-x", 6, 78, 130, 111, 130, 85, 100)], columns=stats.columns)]
+              ).to_csv(master / "stats_raw.csv", index=False)
+    pa = pd.read_csv(master / "pokemon_ability.csv")
+    pd.concat([pa, pd.DataFrame([(10034, 94, False)], columns=pa.columns)]).to_csv(master / "pokemon_ability.csv", index=False)
+    mega = _form("Charizard", "charizard-mega-x", 10034, ["fire", "dragon"], [78, 130, 111, 130, 85, 100])
+    out = next(f for f in build(master, FORMS + [mega])["forms"] if f["poke_id"] == 10034)
+    assert out["abilities"] == ["solar-power"]          # its own, not blaze + solar-power
+    assert out["moves"] == [53]                          # Charizard's damaging learnset
+    assert out["borrowed_from"] == 6
+
+
+def test_a_form_with_its_own_learnset_and_abilities_borrows_nothing(master):
+    pm = pd.read_csv(master / "pokemon_moves.csv")
+    pd.concat([pm, pd.DataFrame([(10194, 247, 1, 1)], columns=pm.columns)]).to_csv(master / "pokemon_moves.csv", index=False)
+    pa = pd.read_csv(master / "pokemon_ability.csv")
+    pd.concat([pa, pd.DataFrame([(10194, 266, False)], columns=pa.columns)]).to_csv(master / "pokemon_ability.csv", index=False)
+    shadow = next(f for f in build(master, FORMS)["forms"] if f["poke_id"] == 10194)
+    assert shadow["abilities"] == ["as-one-spectrier"] and shadow["moves"] == [247] and shadow["borrowed_from"] is None

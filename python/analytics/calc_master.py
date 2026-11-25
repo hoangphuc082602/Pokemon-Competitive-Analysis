@@ -12,9 +12,11 @@ Run after export_web (it reads the species_forms.json that export wrote). Writes
     items       (schema 2, team builder #17) the items a Pokémon can usefully hold in battle, by name: PokéAPI
                 categories HELD_CATEGORIES plus every berry (category "berries"), except baking / catching berries.
                 Which items a regulation allows is not modelled.
-Mechanics only (PokéAPI, BR-16): nothing from Showdown. The crawled ability and learnset tables have no rows for
-alternate forms (poke_id >= 10001); such a form gets the rows of its species' default form (poke_id = species_id)
-and `borrowed_from` names that poke_id, so the UI can say so. Typing and base stats are never borrowed.
+Mechanics only (PokéAPI, BR-16): nothing from Showdown. The crawl (#36) has ability and learnset rows for alternate
+forms (poke_id >= 10001) where PokéAPI has them; Mega forms, for one, have their own ability but no Scarlet / Violet
+learnset. A form without ability rows gets its species' default form's (poke_id = species_id) abilities, and a form
+without learnset rows its learnset, each independently; `borrowed_from` names that poke_id when either is borrowed,
+so the UI can say so. Typing and base stats are never borrowed.
 """
 from __future__ import annotations
 
@@ -91,13 +93,16 @@ def build(master: Path, forms: list[dict]) -> dict:
         if f.get("type_1") is None or any(f.get(s) is None for s in STATS):
             skipped.append(f["form"])
             continue
-        own = pid in abilities or pid in learnsets
-        source = pid if own else species_of.get(pid, pid)
+        default = species_of.get(pid, pid)
+        ability_source = pid if pid in abilities else default
+        move_source = pid if pid in learnsets else default
+        borrowed = {s for s in (ability_source, move_source) if s != pid}
         out_forms.append({"poke_id": pid, "species": f["species"], "form": f["form"],
                           "types": [x for x in (f["type_1"], f.get("type_2")) if x],
                           "base_stats": {s: int(f[s]) for s in STATS},
-                          "abilities": abilities.get(source, []), "moves": sorted(learnsets.get(source, ())),
-                          "borrowed_from": None if source == pid else source})
+                          "abilities": abilities.get(ability_source, []),
+                          "moves": sorted(learnsets.get(move_source, ())),
+                          "borrowed_from": borrowed.pop() if borrowed else None})
 
     used = sorted({m for f in out_forms for m in f["moves"]})
     natures = [{"name": str(r.nature_name), "increased": _stat(r.increased_stat), "decreased": _stat(r.decreased_stat)}
@@ -136,8 +141,8 @@ def main(argv=None) -> int:
           f"skipped (no typing / base stats): {len(data['skipped'])} {data['skipped'][:10]}")
     print(f"  checks: every form in species_forms: {set(f['poke_id'] for f in fs) <= set(f['poke_id'] for f in forms)}; "
           f"borrowed abilities / learnset from the default form: {sum(f['borrowed_from'] is not None for f in fs)}; "
-          f"no learnset: {sum(not f['moves'] for f in fs)} {[f['form'] for f in fs if not f['moves']][:10]}; "
-          f"no ability: {sum(not f['abilities'] for f in fs)}")
+          f"no learnset: {sum(not f['moves'] for f in fs)} {[f['form'] for f in fs if not f['moves']]}; "
+          f"no ability: {sum(not f['abilities'] for f in fs)} {[f['form'] for f in fs if not f['abilities']]}")
     print(f"  moves {len(data['moves'])}, natures {len(data['natures'])}, type chart pairs != 1x {len(data['type_chart'])}, "
           f"items {len(data['items'])} (unique names: {len({i['name'] for i in data['items']}) == len(data['items'])})")
     return 0

@@ -85,7 +85,7 @@ export function createPokemonEditor(root: HTMLElement, master: CalcMaster, opts:
     types.textContent = f.types.map(displayName).join(" / ");
     const borrowed = master.forms.find((x) => x.poke_id === f.borrowed_from);
     note.textContent = f.borrowed_from === null ? ""
-      : `Abilities and moves of ${displayName(borrowed?.form ?? String(f.borrowed_from))}: the game data has none for this form.`;
+      : `Abilities or moves the game data lacks for this form are those of ${displayName(borrowed?.form ?? String(f.borrowed_from))}.`;
     if (opts.moveSlots === 0) return;
     const { moves, fromLearnset } = movesFor(master, f);
     const items: [string, string][] = moves.map((m) =>
