@@ -15,7 +15,7 @@ export interface CalcForm {
   base_stats: Stats;
   abilities: string[];
   moves: number[];
-  borrowed_from: number | null;   // abilities + learnset taken from this default form (no rows for the form itself)
+  borrowed_from: number | null;   // abilities and/or learnset taken from this default form (no rows for the form itself)
 }
 
 export interface CalcMove {
