@@ -1,4 +1,4 @@
-"""First aggregate table: pokemon_usage_stats + regulation_totals (definitions: METRICS.md).
+"""First aggregate table: pokemon_usage_stats + regulation_totals (definitions: Metrics.md).
 
     python -m python.analytics.pokemon_usage --output-dir data/output_v2
 

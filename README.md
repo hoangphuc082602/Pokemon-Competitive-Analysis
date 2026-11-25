@@ -3,24 +3,42 @@
 [![CI](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/actions/workflows/CI.yml/badge.svg)](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/actions/workflows/CI.yml)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 
+**Live demo: <https://hoangphuc082602.github.io/Pokemon-Competitive-Analysis/>** — Meta Overview · Insights · Damage Calculator · Team Builder. No install, no account.
+
 An end-to-end data project built around **Pokémon VGC** (Level 50 doubles battles). Instead of analysing a ready-made dataset, it covers the whole data lifecycle:
 
-> collect → normalise → model → parse / ETL → store (Parquet + MySQL) → validate → aggregate → analyse → recommend
+> collect → normalise → model → parse / ETL → store (Parquet + MySQL) → validate → aggregate → analyse → publish
 
-It combines a **battle-log parsing pipeline** (3.6M Pokémon Showdown replays), a **data-quality layer** (name mapping, validation, safe loading), **metric definitions with explicit denominators**, a **rules-accurate calculation engine** (stats, type effectiveness, damage, KO chances) and a **Streamlit app** for building and analysing teams.
+It combines a **battle-log parsing pipeline** (3.6M Pokémon Showdown replays), a **data-quality layer** (name mapping, validation, safe loading), **metric definitions with explicit denominators**, a **rules-accurate calculation engine** (stats, type effectiveness, damage, KO chances) and a **static web app on GitHub Pages** that publishes the aggregates and runs the Python engine in the browser.
+
+## The web app
+
+The site reads a frozen data snapshot (2026-10-14: 2,547,946 completed VGC battles, 9 regulations from Reg D 2023 to Champions Reg M-A 2026). Every figure shows its population, regulation, rating band and `n`; rows with `n < 100` are hidden.
+
+| Meta Overview | Insights |
+|---|---|
+| [![Meta Overview: team usage per form with win rate against the band baseline, then a species' partners and matchups](documents/img/web/species.png)](https://hoangphuc082602.github.io/Pokemon-Competitive-Analysis/?reg=gen9vgc2024regf&band=all&sp=727) | [![Insights: four findings with population, band, n and baseline](documents/img/web/insights.png)](https://hoangphuc082602.github.io/Pokemon-Competitive-Analysis/insights.html) |
+| Team usage per regulation × rating band (win rate vs the band's own baseline, 95% Wilson interval, lead rate); per species: partners with lift, team-level matchups against the log5 expectation, monthly trend, Tera. | Four findings on Reg F 2026, each separating fact, calculation and interpretation, with a link to the Overview view that reproduces it. |
+| **Damage Calculator** | **Team Builder** |
+| [![Damage Calculator: level-50 damage range and KO estimate from the Python engine in the browser](documents/img/web/calc.png)](https://hoangphuc082602.github.io/Pokemon-Competitive-Analysis/calc.html) | [![Team Builder: six Pokémon with ability, item, nature, EVs and moves, opened from a share link](documents/img/web/team.png)](https://hoangphuc082602.github.io/Pokemon-Competitive-Analysis/team.html) |
+| The project's Python damage engine running in the browser via Pyodide (≈ 5.6 MB on first use); a banner lists the mechanics not modelled. | Teams saved in the browser and shared as a link; team analysis (speed tiers, roles, weakness table) and Showdown paste export. |
+
+Screenshots were taken from the live site on 2026-11-24.
 
 ## Highlights
 
 - **Real-scale data.** 3.64M parsed replays (2.55M of them VGC, Regulation D 2023 → Champions Reg M-A 2026) and 82M move events, parsed in under an hour and resumable after a crash.
 - **Hand-written state-machine parser.** Turns raw Showdown logs into 15 relational tables, streaming to Parquet in batches so memory stays flat. Uses the replay id as `battle_id`, records the real species / form of every event (not the player's nickname) and resolves the forms Showdown hides at team preview.
 - **Data quality as a first-class concern.** Findings that changed the design are documented below, e.g. hashing the log head as an id silently dropped 2.4% of battles; reading the avatar id as a rating corrupted 163k ratings.
-- **Metrics with denominators.** [`METRICS.md`](METRICS.md) defines scope, population and formulas; every aggregate row carries its sample size and a Wilson interval. Aggregates cover usage, win rate, rating bands, Tera, teammate lift and monthly trends.
+- **Metrics with denominators.** [`Metrics.md`](Metrics.md) defines scope, population and formulas; every aggregate row carries its sample size and a Wilson interval. Aggregates cover usage, win rate, rating bands, Tera, teammate lift and monthly trends.
 - **Calculation engine with ability interactions.** Level 50 stats (IV / EV / Nature), STAB (including ability-converted move types), type chart with ability immunities / resistances, damage rolls and OHKO / 2HKO probabilities.
-- **Tested.** The suite runs without a database: parser regression logs, the Parquet → MySQL loader (against SQLite), name mapping, aggregation, and the calculation core.
+- **One engine, two runtimes.** The browser calls the same Python modules through a small standard-library façade (Pyodide), so the calculator logic exists only once and is tested in pytest.
+- **Business rules at export time.** A Python export turns the aggregates into small JSON files with an allow-list of columns; usernames, replay ids and player-level fields make it fail. The browser only displays.
+- **Tested.** The suite runs without a database: parser regression logs, the Parquet → MySQL loader (against SQLite), name mapping, aggregation, the web export and the calculation core; the web app has Vitest tests and CI builds and deploys it.
 
 ## Scale
 
-The figures below come from the author's local MySQL instance. **The datasets are not stored in this repository**; they are rebuilt with the pipeline described in [Getting started](#getting-started).
+The figures below come from the author's local MySQL instance. **The datasets are not stored in this repository** (only the small exported web snapshot in `web/public/data/` is); they are rebuilt with the pipeline described in [How to reproduce](#how-to-reproduce).
 
 | Battle data (Showdown replays) | Rows | Master data (PokéAPI) | Rows |
 |---|---:|---|---:|
@@ -58,8 +76,12 @@ flowchart LR
     D --> R
     R --> M[("Aggregate + dim tables<br/>MySQL / Parquet / CSV")]
 
+    M --> S["export_web.py · calc_master.py<br/>allow-listed JSON snapshot"]
+    D --> S
+    S --> T["Static web app (Vite + TS)<br/>GitHub Pages via Actions"]
     D --> J["Calculation engine<br/>stats · types · damage · KO"]
-    J --> K["Streamlit app<br/>Team Builder · Damage Calculator · Team Analysis"]
+    J -->|"calc_facade via Pyodide"| T
+    J --> K["Streamlit app<br/>(legacy prototype)"]
     H --> L["Word2Vec prototype<br/>teammate similarity"]
 
     M --> N["Power BI dashboard<br/>(model + pages designed)"]:::planned
@@ -68,7 +90,7 @@ flowchart LR
     classDef planned stroke-dasharray: 5 5,color:#888;
 ```
 
-Dashed boxes are planned, not built yet. Game mechanics (PokéAPI, deterministic rules) and competitive statistics (Showdown, empirical observations) are kept separate on purpose: a Pokémon being popular does not mean it is mechanically stronger.
+Dashed boxes are planned, not built yet. The site never queries MySQL: it reads the exported snapshot, and the calculator loads the engine's Python files into Pyodide. Game mechanics (PokéAPI, deterministic rules) and competitive statistics (Showdown, empirical observations) are kept separate on purpose: a Pokémon being popular does not mean it is mechanically stronger.
 
 ## Project status
 
@@ -79,21 +101,23 @@ Dashed boxes are planned, not built yet. Game mechanics (PokéAPI, deterministic
 | Battle-log parser (15 tables, Parquet) | Done | v2: replay-id `battle_id`, species per event, observed forms, one row per player |
 | Parquet → MySQL loader (`to_sql`) | Done | Row-group transactions, refuses non-empty tables, `--resume` after an interruption |
 | Showdown → PokéAPI name mapping | Done | 97.5% exact form, 2.5% species-only (masked or missing from the master data) |
-| Metric definitions and VGC scope | Done | [`METRICS.md`](METRICS.md), `migrations/002_vgc_battles.sql` |
+| Metric definitions and VGC scope | Done | [`Metrics.md`](Metrics.md), `migrations/002_vgc_battles.sql` |
 | Aggregates: usage, win rate, leads, rating bands | Done | `pokemon_usage`; 95% Wilson intervals, band baselines |
 | Aggregates: Tera, partners / lift, monthly trend | Done | `tera_stats`, `partner_stats`, `usage_trend`; tail months flagged |
 | Dimension tables for BI | Done | `dim_tables`: regulation, rating band, month, species |
 | Calculation engine | Core done | See [limitations](#known-limitations) |
-| Streamlit app | Prototype | Team Builder, Damage Calculator, Team Analysis |
-| Unit tests | Passing in CI | No database needed |
 | Matchup aggregate | Done | `matchup_stats`: team level, log5 expectation |
 | EDA report | Done | `eda_report` generates `documents/EDA_FINDINGS.md` and charts |
-| Power BI dashboard | Designed | [`documents/POWERBI_PLAN.md`](documents/POWERBI_PLAN.md): data model, pages, measures |
+| Web export | Done | `export_web`, `calc_master`: allow-listed JSON, `n ≥ 100`, one file per regulation × band |
+| Web app on GitHub Pages | v1.0 | Meta Overview, Insights, Damage Calculator (Pyodide), Team Builder with team save, analysis and Showdown paste |
+| Streamlit app | Legacy prototype | Kept, not extended (ADR-013); needs MySQL |
+| Unit tests | Passing in CI | pytest (no database) + Vitest; production build on every PR |
+| Power BI dashboard | Designed | [`documents/powerbi_plan.md`](documents/powerbi_plan.md): data model, pages, measures |
 | Recommendation | Prototype | Word2Vec teammate similarity, not evaluated |
 
 ## Tech stack
 
-Python · pandas · NumPy · PyArrow / Parquet · SQLAlchemy + PyMySQL · MySQL · Streamlit · Gensim (Word2Vec) · pytest · GitHub Actions. Power BI is planned for the dashboard layer.
+Python · pandas · NumPy · PyArrow / Parquet · SQLAlchemy + PyMySQL · MySQL · Gensim (Word2Vec) · pytest · TypeScript · Vite · ECharts · Pyodide · Vitest · GitHub Actions · GitHub Pages · Streamlit (legacy prototype). Power BI is planned for the dashboard layer.
 
 ## Repository layout
 
@@ -113,18 +137,36 @@ Python · pandas · NumPy · PyArrow / Parquet · SQLAlchemy + PyMySQL · MySQL 
 │   └── test/              # pytest suite
 ├── parser/                # battle-log state machine and the batch runner
 ├── migrations/            # SQL run by hand: species / username columns, VGC scope table, optional raw-table indexes
-├── documents/                  # Power BI plan
+├── web/                   # static web app (Vite + TypeScript); web/public/data/ = exported snapshot
+├── documents/             # EDA findings and insights, Power BI plan, research notes, screenshots
 ├── src/                   # Word2Vec prototype (team generator, training, similarity query)
-├── streamlit_app/         # app.py and pages/
+├── streamlit_app/         # legacy Streamlit prototype: app.py and pages/
 ├── models/                # trained Word2Vec model
 ├── Schema.py              # prints row counts and columns of every table (used to produce schema.sql)
 ├── schema.sql             # table / column overview of the MySQL schema (metadata, not executable DDL)
-├── METRICS.md             # scope, populations and metric definitions
+├── Metrics.md             # scope, populations and metric definitions
 ├── requirements.txt       # runtime dependencies
 └── requirements-dev.txt   # + pytest
 ```
 
-## Getting started
+## How to reproduce
+
+There are two levels:
+
+- **The site only (5 minutes, no Python data, no database).** The exported snapshot is committed in `web/public/data/`, so the site runs locally from a clone:
+
+  ```bash
+  git clone https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis.git
+  cd Pokemon-Competitive-Analysis/web
+  npm ci
+  npm test          # Vitest
+  npm run dev       # http://localhost:5173
+  npm run build     # typecheck + production build -> web/dist (what GitHub Pages serves)
+  ```
+
+  CI uses Node 22. The calculator and the team analysis download Pyodide from jsDelivr, so they need network access.
+
+- **The data (needs MySQL and disk space).** Steps 1–9 below rebuild everything from the sources: PokéAPI master data → replay crawl → parser → Parquet → aggregates → web export (step 9 writes `web/public/data/`). A full parse takes under an hour on the author's machine; the replay crawl takes longer. Public replays change over time (new uploads, replays made private), so a new crawl will not give exactly the snapshot's numbers.
 
 ### 1. Install and run the tests (no database needed)
 
@@ -169,6 +211,7 @@ python -m python.crawl_data.data_pokemon
 
 `data_pokemon` crawls the typing of every `/pokemon` entry, alternate forms included (PokéAPI ids ≥ 10001, e.g. `urshifu-rapid-strike` = 10191), into `data/raw/pokemon_type_raw.csv`. It is resumable (ids already in the CSV are skipped), rate-limited (`--delay`), writes failures to `data/raw/pokemon_type_failures.csv` and prints base / alternate form counts; `--ids 892 10191` crawls a small range; `--to-mysql` rebuilds the MySQL table `pokemon_types` from the CSV (it then holds alternate forms too).
 
+
 `data_poke_move` (learnsets, Scarlet / Violet version group, into `data/raw/pokemon_moves.csv`) and `data_poke_abi` (abilities, into `data/raw/pokemon_ability.csv`) crawl every `/pokemon` entry the same way, alternate forms included. Importing them does nothing; they write MySQL (`pokemon_moves`, `pokemon_abilities`) only with `--to-mysql`. Rate limits, server errors and timeouts are retried with exponential backoff (`--retries`); other failures go to `<out>_failures.csv`. `<out>_progress.csv` records every crawled id with its row count, so a rerun skips it even when it has no rows (Mega forms have no Scarlet / Violet learnset; a few new Mega forms have no ability in PokéAPI yet).
 
 ### 4. Run the app
@@ -177,7 +220,7 @@ python -m python.crawl_data.data_pokemon
 streamlit run streamlit_app/app.py
 ```
 
-The app reads the master data from MySQL, so step 3 must be done first.
+The prototype reads the master data from MySQL, so step 3 must be done first. It is kept as it is; new UI work goes into the web app (ADR-013).
 
 ### 5. Battle-log pipeline (optional)
 
@@ -251,7 +294,7 @@ python -m python.analytics.dim_tables --output-dir data/output                  
 | `pokemon_matchup_stats` | regulation × rating band × ordered species pair |
 | `dim_regulation`, `dim_rating_band`, `dim_month`, `dim_species` | labels and sort orders for the BI layer |
 
-Rating bands are per player (`below_1200`, `1200_1399`, `1400_1499`, `1500_plus`, `unknown`, plus `all`). Months far below the busiest month of a regulation are flagged `tail` (the format is ending, a different population) and excluded from charts. [`METRICS.md`](METRICS.md) has the exact definitions.
+Rating bands are per player (`below_1200`, `1200_1399`, `1400_1499`, `1500_plus`, `unknown`, plus `all`). Months far below the busiest month of a regulation are flagged `tail` (the format is ending, a different population) and excluded from charts. [`Metrics.md`](Metrics.md) has the exact definitions.
 
 Example (author's data, Regulation I 2025, 991,234 player-battles; usage = share of teams containing the species):
 
@@ -280,6 +323,7 @@ npm run build     # typecheck + production build -> web/dist
 
 The export applies the metric rules so the browser cannot break them: rows are per form (forms of a species are never summed; forms hidden at team preview and never sent out, or missing from the master data, get their own labelled row, see [`METRICS.md`](METRICS.md)), forms with `n < 100` player-battles are dropped, win rates are given against the selected band's own baseline (`win_rate_delta`) with a 95% Wilson interval, each rating band (and `all`) is a separate file that is never summed, and only allow-listed columns are written. Usernames, replay / battle ids and player-level columns make the export fail. For a selected species, `partners/` and `matchups/` files (one per regulation × band, species level) hold its most frequent team partners with co-occurrence lift (lift is co-occurrence, not synergy) and its team-level matchups furthest below / above the log5 expectation (`win_rate_vs_expected`; teams, not the Pokémon on the field); pairs with `n < 100` are dropped and the page links a species view as `?reg=&band=&sp=<species_id>`. The same view charts the species' monthly team usage from `trend/` (month = replay upload month; points with `n < 100` teams are gaps; months below 5% of the regulation's busiest month are flagged `tail` in the file, left out of the chart and named under it) and shows its Tera rate and Tera type split from `tera/` (win rates with and without Tera are shown with a note that they are not comparable: survivorship). Monthly and Tera win rates are given against the band baseline (`win_rate_delta`; per month for the trend). On a rating band the page notes the share of player-battles without a rating, which no rating band contains (`unrated_share` in the manifest). The team usage table shows 15 rows per page; the page is kept in the URL (`p=`). Regulations are shown by their `dim_regulation` label (written into the manifest by the export; run `dim_tables` first, otherwise the export applies the same mapping). It also writes `species_forms.json`: one row per exported form with its PokéAPI `poke_id`, typing (`type_1`, `type_2`) and six base stats, joined on `poke_id` from the master CSVs in `--master` (default `data/raw`: `stats_raw.csv`, `pokemon_type_raw.csv`, `data_type.csv`); rows without a form (`unobserved`, `species_only`) get no typing or stats, and the table shows them as unknown (“—”). The team usage table shows each form's typing and base stat total (hover for the six stats). The export also prints the regulations, bands, row counts per `form_basis` and file sizes (`manifest.json` records them too). A second page, `insights.html`, shows four findings on Reg F 2026 (rating-band shift, lift vs win rate, Tera, popularity vs win rate). Its figures and charts are computed in the browser from the same exported files (`web/src/insights.ts`), except species-level figures the export cannot reproduce (rank correlations, the Tera range and median, the Urshifu shift), which are quoted from [`documents/EDA_FINDINGS.md`](documents/EDA_FINDINGS.md) and marked “EDA”; each finding states its population, band, n and baseline and links to the Meta Overview view that reproduces it. A third page, `calc.html`, is a level-50 damage calculator (ADR-014): it runs the project's Python engine in the browser with Pyodide 0.26.4, loaded from jsDelivr on that page only (first visit ≈ 5.6 MB transferred, ≈ 13.8 MB uncompressed: `pyodide.asm.wasm`, `python_stdlib.zip`, `pyodide.asm.js`, lock file; cached afterwards). The page bundles the engine files from `python/calculations/` as text and calls one façade, `calc_facade.calculate_json` (JSON in / out, standard library only, no pandas); pytest checks the façade against the existing engine and that the bundled file list matches its imports. Its game data, `calc_master.json`, is written by `python.analytics.calc_master` from the PokéAPI CSVs, limited to the forms of `species_forms.json` and to the damaging moves of their learnsets; a form without ability rows or without learnset rows (e.g. a Mega form has no Scarlet / Violet learnset) uses that part of its species' default form (`borrowed_from`, shown on the page), and a form without any learnset lists every exported move. A banner lists the mechanics the engine does not model. A fourth page, `team.html`, is a team builder (#17), separate from the calculator: building and saving teams loads only `calc_master.json`; Pyodide is downloaded only when the visitor asks for the team analysis (#19). A team has up to six Pokémon (form, ability, held item, nature, EVs / IVs, up to four damaging moves); the item clause applies (no two Pokémon hold the same item: such a team cannot be saved or shared, any number may hold none). Items are PokéAPI's holdable battle items (`items` in `calc_master.json`, schema 2: held-item, choice, type-boost, plate, mega-stone and species categories plus berries); which items a regulation allows is not checked. Named teams are saved in the browser's `localStorage` (no account, no server; the page keeps working when storage is blocked) and a team can be shared as a link: a versioned, compact encoding in the URL fragment (`#team=<version>.<length>.<base64url>`), so it is never sent to a server. Opening a link shows the team as unsaved and never changes the saved teams until Save is pressed; truncated, damaged or other-version links are refused with a message, and Pokémon, moves, abilities or natures missing from the current game data are dropped or reset with a note. Each member links to the calculator as attacker or defender (`calc.html#attacker=…`), and each calculator side can be filled from a saved team (`web/src/team.ts`, tested with Vitest). “Showdown paste” copies the team as Pokémon Showdown teambuilder text (export only, `web/src/showdown.ts`): form names come from the parser's `python/data_quality/showdown_overrides.csv`, so each name maps back to the same form; item, ability and move names are title-cased slugs (Showdown matches them by id); no Tera type (not in the team model). The team analysis calls the same façade (`calc_facade.team_summary_json`) and follows every edit: speed tiers (level-50 Speed with Choice Scarf ×1.5 / Iron Ball ×0.5; no Tailwind, Trick Room or speed abilities), a stat-based role per member (`role_label` thresholds on level-50 stats, not observed usage), a weakness / resistance table for every attacking type (type chart plus the member's defensive ability; no Tera or weather) and a synergy score = (resisted + immune) − weak counted over that table, a simple tally rather than a validated measure. Threats are not shown (they need meta data). Commit `web/public/data/` to publish a new snapshot: GitHub Actions runs the tests and the build on every pull request and deploys `web/` to GitHub Pages on `main` (repository setting: Pages → Source → GitHub Actions).
 
+
 ## Testing
 
 ```bash
@@ -294,14 +338,20 @@ The suite needs neither MySQL nor network access:
 - team defensive / offensive coverage, role labelling and team validation (duplicate Pokémon / items, illegal moves)
 - the battle-log parser on synthetic logs (nicknames, hidden forms, Mega Evolution, repeated `|player|` lines, turn-0 replacements) and the batch runner (serial vs parallel, replay ids, source metadata)
 - the Parquet → MySQL loader (against SQLite, including `--resume`), the name mapper, every aggregate (usage, Tera, partners, trend, dimensions) and the indexed table writer
+- the web export (rows with `n < 100` dropped, bands never summed, forbidden columns fail the export) and the calculator façade (same results as the engine, JSON in / out, no pandas on the browser path)
+
+The web app has its own tests (`cd web && npm test`: data loader and selectors, team codec and storage, insights, Showdown paste, team analysis). CI runs pytest, Vitest and the production build on every pull request and deploys `web/` to GitHub Pages on `main`.
 
 ## Known limitations
 
 These are tracked openly rather than hidden:
 
 - **Damage calculator** does not model spread moves, critical hits, weather, burn, item and ability damage modifiers, Tera STAB or stat stages yet. Wind Rider's immunity to wind moves is not modelled either (it needs a list of wind moves).
+- **Web data is a frozen snapshot** (2026-10-14). The site is not refreshed automatically; a new snapshot means re-running the export and committing `web/public/data/`.
+- **Calculator / team game data.** Learnsets are Scarlet / Violet only and the crawled ability and learnset tables have no rows for alternate forms (such a form borrows its species' default form, shown on the page), so Champions-era and later movesets are incomplete. Which items a regulation allows is not checked. Team analysis has no Tera, weather, Tailwind or Trick Room, and its synergy score is a simple tally, not a validated measure.
+- **Share links** carry the whole team in the URL fragment: a link from another link version is refused, not converted.
 - **Player table.** `players` has one row per player-battle; a deduplicated players table does not exist yet, so per-player statistics are not available.
-- **Forms.** Nine species are masked at team preview; their form is known only for Pokémon that entered the field, and the rest stay `unobserved`. Form-level statistics for them use the sent-out population. See [`METRICS.md`](METRICS.md).
+- **Forms.** Nine species are masked at team preview; their form is known only for Pokémon that entered the field, and the rest stay `unobserved`. Form-level statistics for them use the sent-out population. See [`Metrics.md`](Metrics.md).
 - **Ratings.** `rating_before` is `NULL` for part of the data; rating-filtered metrics must report the excluded share.
 - **Attribution.** Attacker attribution for damage / KO events is heuristic.
 - **Sample.** Public Showdown replays are a self-selected sample of ladder games, not tournament play, and games of a best-of-three set are not independent.
@@ -311,11 +361,21 @@ These are tracked openly rather than hidden:
 
 ## Roadmap
 
-1. Publish the EDA findings (`documents/EDA_FINDINGS.md`).
-2. The Power BI dashboard on the aggregates (model and pages are designed in [`documents/POWERBI_PLAN.md`](documents/POWERBI_PLAN.md)).
-3. Damage-calculator mechanics and a service layer between Streamlit and the calculation engine.
-4. Hybrid recommendation: rule-based gaps (role, coverage, speed) + meta statistics + embeddings, evaluated on hold-out battles.
-5. Longer term: FastAPI service, speed calculator, EV / IV optimiser, Smogon data.
+**v1.0 (released):** static web app on GitHub Pages: Meta Overview, Insights, Damage Calculator via Pyodide, Team Builder with team save, share link, team analysis and Showdown paste.
+
+**v1.1**
+
+1. Recommendation: hybrid of rule-based gaps (role, coverage, speed), meta statistics and the Word2Vec baseline, **evaluated on hold-out battles** before any claim is made.
+2. Power BI dashboard on the aggregates (model and pages are designed in [`documents/powerbi_plan.md`](documents/powerbi_plan.md)).
+3. Remaining team analysis: threats from meta data, and a synergy measure that is validated rather than tallied.
+4. Damage-calculator mechanics, one per change with tests: spread moves, critical hits, weather, burn, item / ability modifiers, Tera STAB, stat stages.
+5. Learnsets and abilities per regulation, alternate forms included, for the calculator and the team builder.
+
+**v1.2**
+
+1. Weekly crawl + parse job and a refreshed web snapshot.
+
+**Later:** deduplicated players table, Illusion modelling, EV / IV optimiser.
 
 ## Data sources and acknowledgements
 

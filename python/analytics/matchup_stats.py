@@ -1,4 +1,4 @@
-"""Team-level matchups between species (definitions: METRICS.md): pokemon_matchup_stats.
+"""Team-level matchups between species (definitions: Metrics.md): pokemon_matchup_stats.
 
     python -m python.analytics.matchup_stats --output-dir data/output --species Incineroar
 
