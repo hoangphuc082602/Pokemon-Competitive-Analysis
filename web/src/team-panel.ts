@@ -195,7 +195,14 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
     const t = current();
     if (typeof t === "string") return say(`No paste: ${t}`);
     if (t.members.length === 0) return say("No paste: the team has no Pokémon.");
-    showAndCopy(paste, showdownPaste(master, t),
+    let text: string;
+    try {
+      text = showdownPaste(master, t);
+    } catch (e) {
+      console.warn("Showdown paste refused:", e);
+      return say(`No paste: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    showAndCopy(paste, text,
       "Showdown paste copied: import it in Showdown's teambuilder (Import from text).", "Copy the Showdown paste below.");
   });
 

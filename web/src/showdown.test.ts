@@ -65,6 +65,18 @@ Hardy Nature
     const m = { ...TEAM.members[2], item: "kings-rock", ability: "beads-of-ruin" };
     expect(showdownPaste(MASTER, { name: "", members: [m] }).split("\n").slice(0, 2))
       .toEqual(["Landorus @ King's Rock", "Ability: Beads of Ruin"]);
+    const name = (item: string, ability: string) => showdownPaste(MASTER, { name: "", members: [{ ...m, item, ability }] })
+      .split("\n").slice(0, 2).join(" | ");
+    expect(name("heavy-duty-boots", "good-as-gold")).toBe("Landorus @ Heavy-Duty Boots | Ability: Good as Gold");
+    expect(name("", "zero-to-hero")).toBe("Landorus | Ability: Zero to Hero");
+    expect(name("", "dragons-maw")).toBe("Landorus | Ability: Dragon's Maw");
+    const vise = { ...TEAM.members[2], moves: [11] };
+    expect(showdownPaste({ ...MASTER, moves: [{ id: 11, name: "vice-grip", type: "normal", power: 55, damage_class: "physical" }] },
+      { name: "", members: [vise] })).toMatch(/^- Vise Grip$/m);
+  });
+
+  it("refuses a move id that is not in the data instead of writing a bare number", () => {
+    expect(() => showdownPaste(MASTER, { name: "", members: [{ ...TEAM.members[2], moves: [123] }] })).toThrow(/move #123/);
   });
 
   it("is empty for an empty team", () => {
