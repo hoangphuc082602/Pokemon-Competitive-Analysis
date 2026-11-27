@@ -4,28 +4,27 @@
     python -m python.crawl_data.data_pokemon --ids 892 10191      # small test range (add --to-mysql to load MySQL)
 
 pokemon_id is the PokéAPI /pokemon id (= poke_id of pokemon_stats / pokemon_usage_stats), so alternate forms
-(e.g. urshifu-rapid-strike = 10191) get their own typing (#25). Resumable: ids already in the output CSV are skipped
-and each pokemon's rows are appended as soon as they are fetched. Rate-limited (--delay). Failures (HTTP error, no
-types) are logged and written to pokemon_type_failures.csv (this run's failures only; a rerun retries them).
+(e.g. urshifu-rapid-strike = 10191) get their own typing (#25). Resumable, retried with backoff (429 / 5xx /
+timeouts, --retries), rate-limited (--delay), crawled ids in pokemon_type_raw_progress.csv: see
+python/crawl_data/pokeapi_crawl.py (#44). Failures (HTTP error after retries, no types) are logged and written to
+pokemon_type_failures.csv (this run's failures only; a rerun retries them).
 With --to-mysql the MySQL table pokemon_types is rebuilt from the full CSV at the end (if_exists="replace"); it then
 also holds alternate forms, which python/database/pokemon_loader.py LEFT JOINs from pokemon_stats on poke_id.
 """
 from __future__ import annotations
 
 import argparse
-import csv
 import logging
-import time
 from pathlib import Path
 from typing import Callable, Iterable
 
 import pandas as pd
 import requests
 
-BASE_URL = "https://pokeapi.co/api/v2/pokemon/"
-ALTERNATE_FORM_MIN_ID = 10001
+from python.crawl_data.pokeapi_crawl import (ALTERNATE_FORM_MIN_ID, POKEMON_URL, all_pokemon_ids,
+                                             crawl_rows, fetch_json, ref_id)
+
 COLUMNS = ["pokemon_id", "type_id", "slot"]
-log = logging.getLogger(__name__)
 
 
 def extract_types(data: dict) -> list[dict]:
@@ -33,57 +32,26 @@ def extract_types(data: dict) -> list[dict]:
     types = sorted(data.get("types") or [], key=lambda t: t["slot"])
     if not types:
         raise ValueError(f"no types in the response for pokemon {data.get('id')}")
-    return [{"pokemon_id": int(data["id"]), "type_id": int(t["type"]["url"].rstrip("/").split("/")[-1]),
-             "slot": int(t["slot"])} for t in types]
-
-
-def _done_ids(out_csv: Path) -> set[int]:
-    if not out_csv.exists() or out_csv.stat().st_size == 0:
-        return set()
-    return set(pd.read_csv(out_csv, usecols=["pokemon_id"])["pokemon_id"].astype(int))
+    return [{"pokemon_id": int(data["id"]), "type_id": ref_id(t["type"]), "slot": int(t["slot"])} for t in types]
 
 
 def crawl_types(ids: Iterable[int], fetch: Callable[[int], dict], out_csv: Path, failures_csv: Path,
                 delay: float = 0.2) -> dict[str, int]:
-    """Fetch the typing of every id not yet in `out_csv`, appending its rows; returns counts of this run."""
-    out_csv, failures_csv = Path(out_csv), Path(failures_csv)
-    done = _done_ids(out_csv)
-    counts = {"already_done": 0, "base_forms": 0, "alternate_forms": 0, "failed": 0}
-    failures = []
-    new_file = not out_csv.exists() or out_csv.stat().st_size == 0
-    out_csv.parent.mkdir(parents=True, exist_ok=True)
-    with out_csv.open("a", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=COLUMNS)
-        if new_file:
-            writer.writeheader()
-        fetched = 0
-        for pid in ids:
-            if pid in done:
-                counts["already_done"] += 1
-                continue
-            if fetched and delay:
-                time.sleep(delay)
-            fetched += 1
-            try:
-                rows = extract_types(fetch(pid))
-            except (requests.RequestException, ValueError, KeyError, RuntimeError) as e:
-                log.warning("pokemon %s failed: %s", pid, e)
-                failures.append({"pokemon_id": pid, "error": str(e)})
-                counts["failed"] += 1
-                continue
-            writer.writerows(rows)
-            fh.flush()
-            done.add(pid)
-            counts["alternate_forms" if pid >= ALTERNATE_FORM_MIN_ID else "base_forms"] += 1
-    pd.DataFrame(failures, columns=["pokemon_id", "error"]).to_csv(failures_csv, index=False)
-    return counts
+    """Fetch the typing of every id not yet crawled, appending its rows; returns counts of this run.
+    Crawled ids are recorded in <out>_progress.csv next to `out_csv`."""
+    out_csv = Path(out_csv)
+    progress_csv = out_csv.with_name(f"{out_csv.stem}_progress.csv")
+    crawled = []
 
+    def extract(data: dict) -> list[dict]:
+        rows = extract_types(data)
+        crawled.append(rows[0]["pokemon_id"])
+        return rows
 
-def all_pokemon_ids(session: requests.Session) -> list[int]:
-    """Every /pokemon id (base forms 1..1025 and alternate forms >= 10001)."""
-    res = session.get(f"{BASE_URL}?limit=100000", timeout=30)
-    res.raise_for_status()
-    return sorted(int(p["url"].rstrip("/").split("/")[-1]) for p in res.json()["results"])
+    counts = crawl_rows(ids, fetch, extract, COLUMNS, out_csv, failures_csv, progress_csv, delay)
+    alternate = sum(pid >= ALTERNATE_FORM_MIN_ID for pid in crawled)
+    return {"already_done": counts["already_done"], "base_forms": len(crawled) - alternate,
+            "alternate_forms": alternate, "failed": counts["failed"]}
 
 
 def main(argv=None) -> int:
@@ -92,19 +60,15 @@ def main(argv=None) -> int:
     ap.add_argument("--out", type=Path, default=Path("data/raw/pokemon_type_raw.csv"))
     ap.add_argument("--failures", type=Path, default=Path("data/raw/pokemon_type_failures.csv"))
     ap.add_argument("--delay", type=float, default=0.2, help="seconds between requests")
+    ap.add_argument("--retries", type=int, default=4, help="retries of a 429 / 5xx / timeout, with backoff")
     ap.add_argument("--to-mysql", action="store_true", help="rebuild the MySQL table pokemon_types from the CSV")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     session = requests.Session()
-
-    def fetch(pid: int) -> dict:
-        res = session.get(f"{BASE_URL}{pid}/", timeout=30)
-        res.raise_for_status()
-        return res.json()
-
-    ids = args.ids or all_pokemon_ids(session)
-    counts = crawl_types(ids, fetch, args.out, args.failures, args.delay)
+    ids = args.ids or all_pokemon_ids(session, retries=args.retries)
+    counts = crawl_types(ids, lambda pid: fetch_json(session, f"{POKEMON_URL}{pid}/", retries=args.retries),
+                         args.out, args.failures, args.delay)
     df = pd.read_csv(args.out)
     print(f"this run: {counts}")
     print(f"{args.out}: {df['pokemon_id'].nunique()} pokemon "
