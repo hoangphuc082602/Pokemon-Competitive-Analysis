@@ -363,21 +363,19 @@ These are tracked openly rather than hidden:
 
 ## Roadmap
 
-**v1.0 (released):** static web app on GitHub Pages: Meta Overview, Insights, Damage Calculator via Pyodide, Team Builder with team save, share link, team analysis and Showdown paste.
+**v1.0 (released):** static web app on GitHub Pages ([#9](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/issues/9)): Meta Overview, Insights, Damage Calculator running the Python engine in the browser via Pyodide ([#16](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/issues/16)), Team Builder with team save, share link, team analysis and Showdown paste.
 
 **v1.1**
 
-1. Recommendation: hybrid of rule-based gaps (role, coverage, speed), meta statistics and the Word2Vec baseline, **evaluated on hold-out battles** before any claim is made.
-2. Power BI dashboard on the aggregates (model and pages are designed in [`documents/powerbi_plan.md`](documents/powerbi_plan.md)).
-3. Remaining team analysis: threats from meta data, and a synergy measure that is validated rather than tallied.
-4. Damage-calculator mechanics, one per change with tests: spread moves, critical hits, weather, burn, item / ability modifiers, Tera STAB, stat stages.
-5. Learnsets and abilities per regulation, alternate forms included, for the calculator and the team builder.
+1. Crawl hardening: retried, resumable PokéAPI crawls with failure files ([#44](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/issues/44), done).
+2. Team Builder follow-ups: Showdown paste and share-link limitations ([#41](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/issues/41)).
+3. Learnsets and abilities per regulation, Champions and later regulations included, for the calculator and the team builder ([#37](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/issues/37)).
 
-**v1.2**
+**v2.0:** recommendation (team completion and member swap) on the web app, **evaluated on hold-out battles** against popularity, lift and Word2Vec baselines before any claim is made ([#46](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/issues/46)).
 
-1. Weekly crawl + parse job and a refreshed web snapshot.
+**Stretch:** damage-calculator mechanics in game-rule order, one per change with tests: spread moves, critical hits, weather, burn, Tera STAB, stat stages, top items and abilities ([#59](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/issues/59)).
 
-**Later:** deduplicated players table, Illusion modelling, EV / IV optimiser.
+**Later:** held-item table from the battle logs ([#67](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/issues/67)), a licensed source for common EV / IV spreads ([#68](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/issues/68)), counter-team recommendation against a given opposing team ([#69](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/issues/69)).
 
 ## Data sources and acknowledgements
 
