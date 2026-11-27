@@ -7,10 +7,10 @@ import type { Team } from "./team";
 
 const stats = (v: number) => ({ hp: v, atk: v, def: v, spatk: v, spdef: v, spe: v });
 const form = (poke_id: number, species: string, slug: string): CalcForm => ({
-  poke_id, species, form: slug, types: ["normal"], base_stats: stats(100), abilities: [], moves: [], borrowed_from: null,
+  poke_id, species, form: slug, types: ["normal"], base_stats: stats(100), abilities: [], abilities_from: null, learnsets: {},
 });
 const MASTER: CalcMaster = {
-  schema_version: 2, level: 50, skipped: [], natures: [], type_chart: [], items: [],
+  schema_version: 3, level: 50, regulations: [{ id: "gen9vgc2025regi", label: "Reg I 2025", version_group: "scarlet-violet", forms: [] }], skipped: [], natures: [], type_chart: [], items: [],
   forms: [form(987, "Flutter Mane", "flutter-mane"), form(892, "Urshifu", "urshifu-rapid-strike"),
     form(645, "Landorus", "landorus-incarnate")],
   moves: [

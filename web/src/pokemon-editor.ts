@@ -1,7 +1,10 @@
 // One Pokémon's set (form, ability, nature, EVs / IVs, moves) as form controls. Shared by the damage calculator
 // (calc-page.ts: attacker with one move, defender with none) and the team builder (team-panel.ts: four moves, item).
 // DOM only; the rules (spread limits, learnsets) are in calc.ts.
-import { defaultSide, displayName, movesFor, STATS, type CalcForm, type CalcMaster, type SideInput, type Stats } from "./calc";
+import {
+  defaultSide, defaultVersionGroup, displayName, learnsetNote, movesFor, STATS, type CalcForm, type CalcMaster, type SideInput,
+  type Stats,
+} from "./calc";
 
 export const STAT_LABEL: Record<string, string> = { hp: "HP", atk: "Atk", def: "Def", spatk: "SpA", spdef: "SpD", spe: "Spe" };
 
@@ -44,6 +47,9 @@ export interface PokemonEditor {
   tera(): string;
   /** Shows this set; moves the form cannot use are left blank. Fires no change event. */
   load(side: SideInput, moves: number[], item?: string, tera?: string): void;
+  /** Lists only the forms `formIds` (null = all) and the learnsets of `versionGroup` (#37); keeps the picked form,
+   * ability and moves where they still apply. Fires no change event. */
+  setScope(versionGroup: string, formIds: number[] | null): void;
 }
 
 export interface EditorOptions {
@@ -55,6 +61,8 @@ export interface EditorOptions {
   withItem?: boolean;
   /** Shows a Tera type control (team builder, #41): the type list given, plus "not chosen"; not used by the engine. */
   teraTypes?: readonly string[];
+  /** Game whose learnsets are listed (PokéAPI version group); default: the newest regulation's. */
+  versionGroup?: string;
   /** Called on every edit made by the user. */
   onChange: () => void;
 }
@@ -63,6 +71,7 @@ export function createPokemonEditor(root: HTMLElement, master: CalcMaster, opts:
   const forms = [...master.forms].sort((a, b) => displayName(a.form).localeCompare(displayName(b.form)));
   const byId = new Map(forms.map((f) => [String(f.poke_id), f]));
   const start = forms.find((f) => f.form === opts.preferred) ?? forms[0];
+  let versionGroup = opts.versionGroup ?? defaultVersionGroup(master);
   const pokemon = el("select"), ability = el("select"), nature = el("select"), item = el("select"), tera = el("select");
   const moveSelects = Array.from({ length: opts.moveSlots }, () => el("select"));
   const note = el("p", { className: "note" });
@@ -90,15 +99,15 @@ export function createPokemonEditor(root: HTMLElement, master: CalcMaster, opts:
     const f = form();
     options(ability, f.abilities.map((a) => [a, displayName(a)]), defaultSide(f).ability);
     types.textContent = f.types.map(displayName).join(" / ");
-    const borrowed = master.forms.find((x) => x.poke_id === f.borrowed_from);
-    note.textContent = f.borrowed_from === null ? ""
-      : `Abilities or moves the game data lacks for this form are those of ${displayName(borrowed?.form ?? String(f.borrowed_from))}.`;
+    const from = master.forms.find((x) => x.poke_id === f.abilities_from);
+    note.textContent = f.abilities_from === null ? ""
+      : `Abilities: ${from ? displayName(from.form) : f.species}'s (the game data has none for this form).`;
     if (opts.moveSlots === 0) return;
-    const { moves, fromLearnset } = movesFor(master, f);
+    const { moves } = movesFor(master, f, versionGroup);
     const items: [string, string][] = moves.map((m) =>
       [String(m.id), `${displayName(m.name)} (${displayName(m.type)}, ${m.power}, ${m.damage_class})`]);
     for (const sel of moveSelects) options(sel, optional ? [["", "—"], ...items] : items, sel.value);
-    moveNote.textContent = fromLearnset ? "" : "No learnset in the game data for this form: every exported move is listed.";
+    moveNote.textContent = learnsetNote(master, f, versionGroup);
   };
   pokemon.addEventListener("change", refreshForm);
   refreshForm();
@@ -141,6 +150,16 @@ export function createPokemonEditor(root: HTMLElement, master: CalcMaster, opts:
         if ([...sel.options].some((o) => o.value === id)) sel.value = id;
         else if (optional) sel.value = "";
       });
+    },
+    setScope(group, formIds) {
+      versionGroup = group;
+      const allowed = formIds === null ? forms : forms.filter((f) => formIds.includes(f.poke_id));
+      const shown = allowed.length > 0 ? allowed : forms;
+      const before = pokemon.value, abilityBefore = ability.value;
+      const keep = shown.find((f) => String(f.poke_id) === before) ?? shown.find((f) => f.form === opts.preferred) ?? shown[0];
+      options(pokemon, shown.map((f) => [String(f.poke_id), displayName(f.form)]), String(keep.poke_id));
+      refreshForm();
+      if (pokemon.value === before && [...ability.options].some((o) => o.value === abilityBefore)) ability.value = abilityBefore;
     },
   };
 }
