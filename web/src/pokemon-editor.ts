@@ -40,8 +40,10 @@ export interface PokemonEditor {
   moves(): number[];
   /** Held item name, "" = none (always "" without the item control). */
   item(): string;
+  /** Tera type, "" = not chosen (always "" without the Tera control). */
+  tera(): string;
   /** Shows this set; moves the form cannot use are left blank. Fires no change event. */
-  load(side: SideInput, moves: number[], item?: string): void;
+  load(side: SideInput, moves: number[], item?: string, tera?: string): void;
 }
 
 export interface EditorOptions {
@@ -51,6 +53,8 @@ export interface EditorOptions {
   moveSlots: number;
   /** Shows an item control (team builder); the damage engine does not model items. */
   withItem?: boolean;
+  /** Shows a Tera type control (team builder, #41): the type list given, plus "not chosen"; not used by the engine. */
+  teraTypes?: readonly string[];
   /** Called on every edit made by the user. */
   onChange: () => void;
 }
@@ -59,7 +63,7 @@ export function createPokemonEditor(root: HTMLElement, master: CalcMaster, opts:
   const forms = [...master.forms].sort((a, b) => displayName(a.form).localeCompare(displayName(b.form)));
   const byId = new Map(forms.map((f) => [String(f.poke_id), f]));
   const start = forms.find((f) => f.form === opts.preferred) ?? forms[0];
-  const pokemon = el("select"), ability = el("select"), nature = el("select"), item = el("select");
+  const pokemon = el("select"), ability = el("select"), nature = el("select"), item = el("select"), tera = el("select");
   const moveSelects = Array.from({ length: opts.moveSlots }, () => el("select"));
   const note = el("p", { className: "note" });
   const moveNote = el("p", { className: "note" });
@@ -68,6 +72,9 @@ export function createPokemonEditor(root: HTMLElement, master: CalcMaster, opts:
   const evs = spreadInputs("EVs", 0, 252), ivs = spreadInputs("IVs", 31, 31);
   const types = el("span", { className: "muted" });
   const optional = opts.moveSlots > 1;
+  if (opts.teraTypes) {
+    options(tera, [["", "— not chosen —"], ...opts.teraTypes.map((t): [string, string] => [t, displayName(t)])], "");
+  }
   if (opts.withItem) {
     item.append(el("option", { value: "", textContent: "— no item —" }));
     const groups = new Map<string, HTMLOptGroupElement>();
@@ -104,7 +111,8 @@ export function createPokemonEditor(root: HTMLElement, master: CalcMaster, opts:
   root.append(
     el("div", { className: "filters" },
       el("label", {}, "Pokémon", pokemon), el("label", {}, "Ability", ability), el("label", {}, "Nature", nature),
-      ...(opts.withItem ? [el("label", {}, "Item", item)] : [])),
+      ...(opts.withItem ? [el("label", {}, "Item", item)] : []),
+      ...(opts.teraTypes ? [el("label", {}, "Tera type", tera)] : [])),
     el("p", { className: "context" }, "Type: ", types),
     note,
     ...moveRow,
@@ -118,7 +126,8 @@ export function createPokemonEditor(root: HTMLElement, master: CalcMaster, opts:
     read: () => ({ form: form(), ability: ability.value, nature: nature.value, evs: evs.read(), ivs: ivs.read() }),
     moves: () => [...new Set(moveSelects.map((s) => Number(s.value)).filter((v) => v > 0))],
     item: () => (opts.withItem ? item.value : ""),
-    load(s, moves, held = "") {
+    tera: () => (opts.teraTypes ? tera.value : ""),
+    load(s, moves, held = "", teraType = "") {
       pokemon.value = String(s.form.poke_id);
       refreshForm();
       ability.value = s.ability;
@@ -126,6 +135,7 @@ export function createPokemonEditor(root: HTMLElement, master: CalcMaster, opts:
       evs.write(s.evs);
       ivs.write(s.ivs);
       if (opts.withItem) item.value = held;
+      if (opts.teraTypes) tera.value = teraType;
       moveSelects.forEach((sel, i) => {
         const id = moves[i] === undefined ? "" : String(moves[i]);
         if ([...sel.options].some((o) => o.value === id)) sel.value = id;

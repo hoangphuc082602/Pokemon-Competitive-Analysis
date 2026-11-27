@@ -46,6 +46,8 @@ const SPELLED: Record<string, string> = {
   "natures-madness": "Nature's Madness", "kings-rock": "King's Rock", "never-melt-ice": "Never-Melt Ice",
   "well-baked-body": "Well-Baked Body", "minds-eye": "Mind's Eye", "soul-heart": "Soul-Heart",
   "as-one-glastrier": "As One (Glastrier)", "as-one-spectrier": "As One (Spectrier)",
+  "heavy-duty-boots": "Heavy-Duty Boots", "vice-grip": "Vise Grip", "dragons-maw": "Dragon's Maw",
+  "good-as-gold": "Good as Gold", "zero-to-hero": "Zero to Hero",
 };
 
 /** Move / item / ability slug -> Showdown name: "booster-energy" -> "Booster Energy", "beads-of-ruin" -> "Beads of Ruin". */
@@ -65,17 +67,22 @@ function memberPaste(master: CalcMaster, moves: Map<number, string>, form: CalcF
     showdownName(form) + (m.item ? ` @ ${spelled(m.item)}` : ""),
     `Ability: ${spelled(m.ability)}`,
     `Level: ${master.level}`,
+    ...(m.tera ? [`Tera Type: ${displayName(m.tera)}`] : []),
     ...(evs ? [`EVs: ${evs}`] : []),
     `${displayName(m.nature)} Nature`,
     ...(ivs ? [`IVs: ${ivs}`] : []),
-    ...m.moves.map((id) => `- ${spelled(moves.get(id) ?? String(id))}`),
+    ...m.moves.map((id) => {
+      const move = moves.get(id);
+      if (move === undefined) throw new Error(`${showdownName(form)}: move #${id} is not in the calculator data.`);
+      return `- ${spelled(move)}`;
+    }),
   ].map((line) => `${line}\n`).join("");
 }
 
 /**
- * The team in Showdown's paste format: one block per member (name @ item, ability, level, EVs, nature, IVs, moves),
- * blank line between blocks; "" for an empty team. Members must be resolved (resolveTeam): a form that is not in the
- * master data throws.
+ * The team in Showdown's paste format: one block per member (name @ item, ability, level, Tera type, EVs, nature, IVs,
+ * moves), blank line between blocks; "" for an empty team. Members must be resolved (resolveTeam): a form or move
+ * that is not in the master data throws.
  */
 export function showdownPaste(master: CalcMaster, team: Team): string {
   const forms = new Map(master.forms.map((f) => [f.poke_id, f]));

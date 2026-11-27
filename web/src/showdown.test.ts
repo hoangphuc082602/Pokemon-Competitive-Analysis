@@ -24,11 +24,11 @@ const MASTER: CalcMaster = {
 const TEAM: Team = {
   name: "Rain",
   members: [
-    { poke_id: 987, ability: "protosynthesis", item: "booster-energy", nature: "timid",
+    { poke_id: 987, ability: "protosynthesis", item: "booster-energy", tera: "fairy", nature: "timid",
       evs: { ...stats(0), hp: 4, spatk: 252, spe: 252 }, ivs: { ...stats(31), atk: 0 }, moves: [585, 247] },
-    { poke_id: 892, ability: "unseen-fist", item: "choice-scarf", nature: "jolly",
+    { poke_id: 892, ability: "unseen-fist", item: "choice-scarf", tera: "", nature: "jolly",
       evs: { ...stats(0), atk: 252, spe: 252, hp: 4 }, ivs: stats(31), moves: [503, 369] },
-    { poke_id: 645, ability: "sheer-force", item: "", nature: "hardy", evs: stats(0), ivs: stats(31), moves: [] },
+    { poke_id: 645, ability: "sheer-force", item: "", tera: "stellar", nature: "hardy", evs: stats(0), ivs: stats(31), moves: [] },
   ],
 };
 
@@ -38,6 +38,7 @@ describe("Showdown paste", () => {
       `Flutter Mane @ Booster Energy
 Ability: Protosynthesis
 Level: 50
+Tera Type: Fairy
 EVs: 4 HP / 252 SpA / 252 Spe
 Timid Nature
 IVs: 0 Atk
@@ -55,6 +56,7 @@ Jolly Nature
 Landorus
 Ability: Sheer Force
 Level: 50
+Tera Type: Stellar
 Hardy Nature
 `);
   });
@@ -63,6 +65,18 @@ Hardy Nature
     const m = { ...TEAM.members[2], item: "kings-rock", ability: "beads-of-ruin" };
     expect(showdownPaste(MASTER, { name: "", members: [m] }).split("\n").slice(0, 2))
       .toEqual(["Landorus @ King's Rock", "Ability: Beads of Ruin"]);
+    const name = (item: string, ability: string) => showdownPaste(MASTER, { name: "", members: [{ ...m, item, ability }] })
+      .split("\n").slice(0, 2).join(" | ");
+    expect(name("heavy-duty-boots", "good-as-gold")).toBe("Landorus @ Heavy-Duty Boots | Ability: Good as Gold");
+    expect(name("", "zero-to-hero")).toBe("Landorus | Ability: Zero to Hero");
+    expect(name("", "dragons-maw")).toBe("Landorus | Ability: Dragon's Maw");
+    const vise = { ...TEAM.members[2], moves: [11] };
+    expect(showdownPaste({ ...MASTER, moves: [{ id: 11, name: "vice-grip", type: "normal", power: 55, damage_class: "physical" }] },
+      { name: "", members: [vise] })).toMatch(/^- Vise Grip$/m);
+  });
+
+  it("refuses a move id that is not in the data instead of writing a bare number", () => {
+    expect(() => showdownPaste(MASTER, { name: "", members: [{ ...TEAM.members[2], moves: [123] }] })).toThrow(/move #123/);
   });
 
   it("is empty for an empty team", () => {

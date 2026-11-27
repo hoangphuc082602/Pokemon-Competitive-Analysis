@@ -12,6 +12,7 @@ export interface TeamMember {
   poke_id: number;
   ability: string;
   item: string;      // held item name, "" = no item; at most one Pokémon per item (item clause)
+  tera: string;      // Tera type (TERA_TYPES), "" = not chosen (Showdown then uses the first type)
   nature: string;
   evs: Stats;
   ivs: Stats;
@@ -23,11 +24,15 @@ export interface Team {
   members: TeamMember[];   // at most 6
 }
 
-/** Version of the share-link format; a link of another version is refused, never guessed. */
-export const LINK_VERSION = 1;
+/** Tera types a member can pick: the 18 types plus Stellar. */
+export const TERA_TYPES = ["bug", "dark", "dragon", "electric", "fairy", "fighting", "fire", "flying", "ghost", "grass",
+  "ground", "ice", "normal", "poison", "psychic", "rock", "steel", "water", "stellar"] as const;
 
-// Positional on purpose (short links): [name, [[poke_id, ability, nature, evs[6], ivs[6], move ids, item], ...]].
-type Packed = [string, [number, string, string, number[], number[], number[], string][]];
+/** Version of the share-link format; a link of another version is refused, never guessed. 2: Tera type (#41). */
+export const LINK_VERSION = 2;
+
+// Positional on purpose (short links): [name, [[poke_id, ability, nature, evs[6], ivs[6], move ids, item, tera], ...]].
+type Packed = [string, [number, string, string, number[], number[], number[], string, string][]];
 
 const toBase64Url = (text: string) => {
   let bin = "";
@@ -43,7 +48,7 @@ const fromBase64Url = (data: string) => {
 /** "<version>.<payload length>.<base64url JSON>": the length makes a truncated link detectable. */
 export function encodeTeam(team: Team): string {
   const packed: Packed = [team.name, team.members.map((m) =>
-    [m.poke_id, m.ability, m.nature, STATS.map((s) => m.evs[s]), STATS.map((s) => m.ivs[s]), m.moves, m.item])];
+    [m.poke_id, m.ability, m.nature, STATS.map((s) => m.evs[s]), STATS.map((s) => m.ivs[s]), m.moves, m.item, m.tera])];
   const data = toBase64Url(JSON.stringify(packed));
   return `${LINK_VERSION}.${data.length}.${data}`;
 }
@@ -64,6 +69,7 @@ const isSpread = (v: unknown): v is number[] => Array.isArray(v) && v.length ===
 const unpack = (v: number[]) => Object.fromEntries(STATS.map((s, i) => [s, v[i]])) as Stats;
 
 const isItem = (v: unknown): v is string => v === "" || isSlug(v);
+const isTera = (v: unknown): v is string => v === "" || (TERA_TYPES as readonly unknown[]).includes(v);
 
 /** "1 and 3", "1, 2 and 4". */
 const listed = (n: number[]) => (n.length < 2 ? String(n[0]) : `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`);
@@ -80,6 +86,7 @@ export function teamError(team: Team): string | null {
     if (m.moves.length > MAX_MOVES) return `A team member has more than ${MAX_MOVES} moves.`;
     if (!m.moves.every(isInt)) return "A team member has a move that is not a move id.";
     if (!isItem(m.item)) return "A team member has an item that is not an item name.";
+    if (!isTera(m.tera)) return "A team member has a Tera type that is not a type.";
     const bad = spreadError(m.evs, m.ivs);
     if (bad) return bad;
   }
@@ -102,7 +109,9 @@ export function decodeTeam(link: string): Team {
   const version = /^(\d+)(\.|$)/.exec(link)?.[1];
   if (version === undefined) throw new TeamLinkError("invalid", "This is not a team link.");
   if (Number(version) !== LINK_VERSION) {
-    throw new TeamLinkError("version", `This link uses team format ${version}; this site reads format ${LINK_VERSION}.`);
+    const why = Number(version) === 1 ? ", made before Tera types were stored" : "";
+    throw new TeamLinkError("version",
+      `This link uses team format ${version}${why}; this site reads format ${LINK_VERSION}. Ask for a new link.`);
   }
   const match = /^\d+\.(\d+)\.([A-Za-z0-9_-]*)$/.exec(link);
   if (!match) {
@@ -124,12 +133,12 @@ export function decodeTeam(link: string): Team {
   const [name, rows] = packed as [string, unknown[]];
   const members: TeamMember[] = [];
   for (const row of rows) {
-    if (!Array.isArray(row) || row.length !== 7 || !isInt(row[0]) || !isSlug(row[1]) || !isSlug(row[2]) ||
-      !isSpread(row[3]) || !isSpread(row[4]) || !Array.isArray(row[5]) || !isItem(row[6])) {
+    if (!Array.isArray(row) || row.length !== 8 || !isInt(row[0]) || !isSlug(row[1]) || !isSlug(row[2]) ||
+      !isSpread(row[3]) || !isSpread(row[4]) || !Array.isArray(row[5]) || !isItem(row[6]) || !isTera(row[7])) {
       throw new TeamLinkError("invalid", "This link contains a Pokémon it cannot read.");
     }
-    members.push({ poke_id: row[0], ability: row[1], item: row[6], nature: row[2], evs: unpack(row[3]), ivs: unpack(row[4]),
-      moves: row[5] });
+    members.push({ poke_id: row[0], ability: row[1], item: row[6], tera: row[7], nature: row[2], evs: unpack(row[3]),
+      ivs: unpack(row[4]), moves: row[5] });
   }
   const team = { name, members };
   const bad = teamError(team);
@@ -137,8 +146,18 @@ export function decodeTeam(link: string): Team {
   return team;
 }
 
-/** localStorage key of the saved teams (one JSON list); bump the suffix if the stored shape ever changes. */
-export const TEAMS_KEY = "vgc-teams-v1";
+/** localStorage key of the saved teams (one JSON list); bump the suffix if the stored shape ever changes.
+ *  v2 (#41): members have a Tera type. */
+export const TEAMS_KEY = "vgc-teams-v2";
+/** Teams saved before Tera types: read (Tera type "") until the first save writes TEAMS_KEY; never changed. */
+const TEAMS_KEY_V1 = "vgc-teams-v1";
+
+/** A v1 saved team with each member given no Tera type; anything else is returned as it is (isSaved checks it). */
+const fromV1 = (v: unknown): unknown => {
+  const t = v as { members?: unknown } | null;
+  if (!t || typeof t !== "object" || !Array.isArray(t.members)) return v;
+  return { ...t, members: t.members.map((m) => (m && typeof m === "object" ? { ...m, tera: "" } : m)) };
+};
 
 export interface SavedTeam extends Team {
   id: string;
@@ -175,8 +194,14 @@ export function createTeamStore(storage: () => Storage | null, now: () => Date =
   /** null = storage unavailable; unreadable stored data counts as no saved team (it could never be loaded). */
   const read = (): SavedTeam[] | null => {
     let raw: string | null | undefined;
+    let v1 = false;
     try {
-      raw = storage()?.getItem(TEAMS_KEY);
+      const s = storage();
+      raw = s?.getItem(TEAMS_KEY);
+      if (raw === null) {
+        raw = s!.getItem(TEAMS_KEY_V1);
+        v1 = raw !== null;
+      }
     } catch (e) {
       console.warn("Saved teams could not be read:", e);
       return null;
@@ -185,7 +210,7 @@ export function createTeamStore(storage: () => Storage | null, now: () => Date =
     if (raw === null) return [];
     try {
       const parsed: unknown = JSON.parse(raw);
-      const teams = Array.isArray(parsed) ? parsed.filter(isSaved) : [];
+      const teams = Array.isArray(parsed) ? (v1 ? parsed.map(fromV1) : parsed).filter(isSaved) : [];
       if (!Array.isArray(parsed) || teams.length < parsed.length) {
         console.warn(`Saved teams: ${Array.isArray(parsed) ? parsed.length - teams.length : "all"} unreadable entries skipped.`);
       }
@@ -283,8 +308,8 @@ export function resolveTeam(master: CalcMaster, team: Team): { team: Team; notes
 }
 
 /** A calculator side (or a member editor) as a team member. */
-export function memberFromSide(side: SideInput, moves: number[], item = ""): TeamMember {
-  return { poke_id: side.form.poke_id, ability: side.ability, item, nature: side.nature, evs: { ...side.evs },
+export function memberFromSide(side: SideInput, moves: number[], item = "", tera = ""): TeamMember {
+  return { poke_id: side.form.poke_id, ability: side.ability, item, tera, nature: side.nature, evs: { ...side.evs },
     ivs: { ...side.ivs }, moves: [...moves] };
 }
 
