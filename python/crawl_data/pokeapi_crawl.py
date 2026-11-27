@@ -1,7 +1,8 @@
-"""Resumable per-/pokemon crawl shared by the learnset and ability crawls (#36).
+"""Resumable PokéAPI crawl shared by the per-/pokemon crawls (learnset, abilities, typing: #36, #44) and the
+/ability crawl (#44).
 
 crawl_rows fetches every id not yet crawled, appends its rows to the output CSV and records the id in a progress CSV
-(pokemon_id, rows) even when it has no rows (e.g. a Mega form has no Scarlet / Violet learnset), so a rerun does not
+(<id>, rows) even when it has no rows (e.g. a Mega form has no Scarlet / Violet learnset), so a rerun does not
 fetch it again. Ids already in an output CSV written before the progress file existed also count as crawled.
 Failures (HTTP error after retries, malformed payload) go to the failures CSV (this run's failures only; a rerun
 retries them).
@@ -19,7 +20,9 @@ import requests
 
 log = logging.getLogger(__name__)
 RETRY_STATUS = (429, 500, 502, 503, 504)
-POKEMON_URL = "https://pokeapi.co/api/v2/pokemon/"
+API_URL = "https://pokeapi.co/api/v2/"
+POKEMON_URL = f"{API_URL}pokemon/"
+ALTERNATE_FORM_MIN_ID = 10001          # /pokemon ids of alternate forms (Mega, regional, ...)
 
 
 def ref_id(ref: dict) -> int:
@@ -28,9 +31,10 @@ def ref_id(ref: dict) -> int:
 
 
 def fetch_json(session, url: str, retries: int = 4, backoff: float = 1.0,
-               sleep: Callable[[float], None] = time.sleep) -> dict:
+               sleep: Callable[[float], None] | None = None) -> dict:
     """GET `url` as JSON. Rate limits, server errors, timeouts and connection errors are retried `retries` times,
-    waiting backoff, 2*backoff, 4*backoff...; any other HTTP error (e.g. 404) is raised at once."""
+    waiting backoff, 2*backoff, 4*backoff... (`sleep`, default time.sleep); any other HTTP error (e.g. 404) is
+    raised at once."""
     for attempt in range(retries + 1):
         try:
             res = session.get(url, timeout=30)
@@ -42,14 +46,24 @@ def fetch_json(session, url: str, retries: int = 4, backoff: float = 1.0,
                 raise
             wait = backoff * 2 ** attempt
             log.info("%s: %s, retry in %.1fs", url, e, wait)
-            sleep(wait)
+            (sleep or time.sleep)(wait)
     raise AssertionError("unreachable")
 
 
-def _ids_in(path: Path) -> set[int]:
+def list_ids(session, url: str, retries: int = 4) -> list[int]:
+    """Every id of a PokéAPI list endpoint (e.g. POKEMON_URL), sorted."""
+    return sorted(ref_id(r) for r in fetch_json(session, f"{url}?limit=100000", retries=retries)["results"])
+
+
+def all_pokemon_ids(session, retries: int = 4) -> list[int]:
+    """Every /pokemon id (base forms 1..1025 and alternate forms >= ALTERNATE_FORM_MIN_ID)."""
+    return list_ids(session, POKEMON_URL, retries)
+
+
+def _ids_in(path: Path, id_column: str) -> set[int]:
     if not path.exists() or path.stat().st_size == 0:
         return set()
-    return set(pd.read_csv(path, usecols=["pokemon_id"])["pokemon_id"].astype("int64").tolist())
+    return set(pd.read_csv(path, usecols=[id_column])[id_column].astype("int64").tolist())
 
 
 def _appender(path: Path, columns: list[str]):
@@ -64,14 +78,15 @@ def _appender(path: Path, columns: list[str]):
 
 def crawl_rows(ids: Iterable[int], fetch: Callable[[int], dict], extract: Callable[[dict], list[dict]],
                columns: list[str], out_csv: Path, failures_csv: Path, progress_csv: Path,
-               delay: float = 0.2) -> dict[str, int]:
-    """Crawl every id not yet done (see the module docstring); returns counts of this run."""
+               delay: float = 0.2, id_column: str = "pokemon_id") -> dict[str, int]:
+    """Crawl every id not yet done (see the module docstring); returns counts of this run. `id_column` names the id
+    in the output, progress and failures CSVs (e.g. ability_id for the /ability crawl)."""
     out_csv, failures_csv, progress_csv = Path(out_csv), Path(failures_csv), Path(progress_csv)
-    done = _ids_in(out_csv) | _ids_in(progress_csv)
+    done = _ids_in(out_csv, id_column) | _ids_in(progress_csv, id_column)
     counts = {"already_done": 0, "crawled": 0, "empty": 0, "failed": 0}
     failures = []
     out_fh, out = _appender(out_csv, columns)
-    prog_fh, prog = _appender(progress_csv, ["pokemon_id", "rows"])
+    prog_fh, prog = _appender(progress_csv, [id_column, "rows"])
     try:
         fetched = 0
         for pid in ids:
@@ -84,13 +99,13 @@ def crawl_rows(ids: Iterable[int], fetch: Callable[[int], dict], extract: Callab
             try:
                 rows = extract(fetch(pid))
             except (requests.RequestException, ValueError, KeyError, TypeError) as e:
-                log.warning("pokemon %s failed: %s", pid, e)
-                failures.append({"pokemon_id": pid, "error": str(e)})
+                log.warning("%s %s failed: %s", id_column, pid, e)
+                failures.append({id_column: pid, "error": str(e)})
                 counts["failed"] += 1
                 continue
             out.writerows(rows)
             out_fh.flush()
-            prog.writerow({"pokemon_id": pid, "rows": len(rows)})
+            prog.writerow({id_column: pid, "rows": len(rows)})
             prog_fh.flush()
             done.add(pid)
             counts["crawled"] += 1
@@ -98,7 +113,7 @@ def crawl_rows(ids: Iterable[int], fetch: Callable[[int], dict], extract: Callab
     finally:
         out_fh.close()
         prog_fh.close()
-    pd.DataFrame(failures, columns=["pokemon_id", "error"]).to_csv(failures_csv, index=False)
+    pd.DataFrame(failures, columns=[id_column, "error"]).to_csv(failures_csv, index=False)
     return counts
 
 
@@ -107,8 +122,6 @@ def run_cli(argv, description: str, extract: Callable[[dict], list[dict]], colum
     """Command line shared by the per-/pokemon crawls: --ids (default: every /pokemon id, alternate forms included),
     --out (failures / progress CSVs sit next to it), --delay, --retries, --to-mysql (rebuild `table` from the CSV)."""
     import argparse
-
-    from python.crawl_data.data_pokemon import ALTERNATE_FORM_MIN_ID, all_pokemon_ids
 
     ap = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--ids", type=int, nargs="+", help="crawl only these /pokemon ids (default: all)")
@@ -122,7 +135,7 @@ def run_cli(argv, description: str, extract: Callable[[dict], list[dict]], colum
     failures, progress = (out.with_name(f"{out.stem}_{s}.csv") for s in ("failures", "progress"))
 
     session = requests.Session()
-    ids = args.ids or all_pokemon_ids(session)
+    ids = args.ids or all_pokemon_ids(session, args.retries)
     counts = crawl_rows(ids, lambda pid: fetch_json(session, f"{POKEMON_URL}{pid}/",
                                                     retries=args.retries),
                         extract, columns, out, failures, progress, args.delay)
