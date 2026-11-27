@@ -59,6 +59,16 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
 
   const say = (...lines: string[]) => status.replaceChildren(...lines.flatMap((l, i) => (i ? [el("br"), l] : [l])));
 
+  /** Shows text in its read-only field, selected, and copies it; the field stays as the fallback. */
+  const showAndCopy = (field: HTMLInputElement | HTMLTextAreaElement, text: string, copiedMsg: string, fallbackMsg: string) => {
+    field.value = text;
+    field.hidden = false;
+    field.select();
+    const copied = navigator.clipboard?.writeText(text);   // undefined outside a secure context
+    if (!copied) return say(fallbackMsg);
+    copied.then(() => say(copiedMsg), () => say(fallbackMsg));
+  };
+
   const renderSaved = () => {
     const items: [string, string][] = store.list().map((t) => [t.id, `${t.name || UNTITLED} (${t.members.length})`]);
     if (savedId === null) items.unshift(["", "— not saved —"]);
@@ -168,28 +178,17 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
   shareBtn.addEventListener("click", () => {
     const t = current();
     if (typeof t === "string") return say(`No link: ${t}`);
-    share.value = `${location.origin}${location.pathname}${LINK_PREFIX}${encodeTeam(t)}`;
-    share.hidden = false;
-    share.select();
-    const copied = navigator.clipboard?.writeText(share.value);   // undefined outside a secure context
-    if (!copied) return say("Copy the share link below.");
-    copied.then(
-      () => say("Share link copied. Anyone opening it sees this team; their saved teams are not changed."),
-      () => say("Copy the share link below."));
+    showAndCopy(share, `${location.origin}${location.pathname}${LINK_PREFIX}${encodeTeam(t)}`,
+      "Share link copied. Anyone opening it sees this team; their saved teams are not changed.",
+      "Copy the share link below.");
   });
 
   pasteBtn.addEventListener("click", () => {
     const t = current();
     if (typeof t === "string") return say(`No paste: ${t}`);
     if (t.members.length === 0) return say("No paste: the team has no Pokémon.");
-    paste.value = showdownPaste(master, t);
-    paste.hidden = false;
-    paste.select();
-    const copied = navigator.clipboard?.writeText(paste.value);   // undefined outside a secure context
-    if (!copied) return say("Copy the Showdown paste below.");
-    copied.then(
-      () => say("Showdown paste copied: import it in Showdown's teambuilder (Import from text)."),
-      () => say("Copy the Showdown paste below."));
+    showAndCopy(paste, showdownPaste(master, t),
+      "Showdown paste copied: import it in Showdown's teambuilder (Import from text).", "Copy the Showdown paste below.");
   });
 
   /** A share link in the URL fragment: shown as an unsaved team; false when there is none or it was refused. */
