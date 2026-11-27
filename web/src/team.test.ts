@@ -168,9 +168,9 @@ describe("saved teams", () => {
 
 describe("resolveTeam (a link made with another data snapshot)", () => {
   const MASTER: CalcMaster = {
-    schema_version: 2, level: 50, items: [{ name: "focus-sash", category: "held-items" }], skipped: [], type_chart: [],
+    schema_version: 3, level: 50, regulations: [{ id: "gen9vgc2025regi", label: "Reg I 2025", version_group: "scarlet-violet", forms: [] }], items: [{ name: "focus-sash", category: "held-items" }], skipped: [], type_chart: [],
     forms: [{ poke_id: 987, species: "Flutter Mane", form: "flutter-mane", types: ["ghost", "fairy"], base_stats: stats(100),
-      abilities: ["protosynthesis"], moves: [247, 585], borrowed_from: null }],
+      abilities: ["protosynthesis"], abilities_from: null, learnsets: { "scarlet-violet": { moves: [247, 585], version_group: "scarlet-violet", poke_id: 987 } } }],
     moves: [
       { id: 247, name: "shadow-ball", type: "ghost", power: 80, damage_class: "special" },
       { id: 585, name: "moonblast", type: "fairy", power: 95, damage_class: "special" },

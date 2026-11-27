@@ -5,10 +5,10 @@ import { buildTeamSummaryRequest, multiplierLabel, roleLabel } from "./team-anal
 
 const stats = (v: number) => ({ hp: v, atk: v, def: v, spatk: v, spdef: v, spe: v });
 const form = (poke_id: number, name: string, types: string[]) => ({
-  poke_id, species: name, form: name, types, base_stats: stats(100), abilities: ["none"], moves: [], borrowed_from: null,
+  poke_id, species: name, form: name, types, base_stats: stats(100), abilities: ["none"], abilities_from: null, learnsets: {},
 });
 const MASTER: CalcMaster = {
-  schema_version: 2, level: 50, skipped: [], moves: [], items: [{ name: "choice-scarf", category: "choice" }],
+  schema_version: 3, level: 50, regulations: [{ id: "gen9vgc2025regi", label: "Reg I 2025", version_group: "scarlet-violet", forms: [] }], skipped: [], moves: [], items: [{ name: "choice-scarf", category: "choice" }],
   forms: [form(1, "flutter-mane", ["ghost", "fairy"]), form(2, "incineroar", ["fire", "dark"])],
   natures: [{ name: "timid", increased: "spe", decreased: "atk" }, { name: "hardy", increased: null, decreased: null }],
   type_chart: [["fire", "grass", 2]],

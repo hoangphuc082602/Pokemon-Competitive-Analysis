@@ -3,7 +3,7 @@
 // no Pyodide; tested with Vitest. Forms, abilities, natures and moves
 // are the ids / slugs of calc_master.json (calc.ts); checking them against the master data is the page's job.
 import {
-  displayName, movesFor, spreadError, STATS, type CalcForm, type CalcMaster, type SideInput, type Stats,
+  defaultVersionGroup, displayName, movesFor, spreadError, STATS, type CalcForm, type CalcMaster, type SideInput, type Stats,
 } from "./calc";
 
 export const MAX_MEMBERS = 6, MAX_MOVES = 4, MAX_NAME = 60;
@@ -267,10 +267,11 @@ export function browserStorage(): Storage | null {
 /**
  * Checks a team (from a link or storage) against the calculator data: Pokémon not in the data are left out, an
  * unknown ability / nature is replaced by the form's first ability / Hardy, moves outside the form's damaging-move
- * list are dropped, an item not in the item list is removed. Each change gets a note for the page to show; nothing
+ * list in `versionGroup` (default: the newest regulation's game) are dropped, an item not in the item list is removed. Each change gets a note for the page to show; nothing
  * is changed silently. The item clause is not repaired here: teamError reports it.
  */
-export function resolveTeam(master: CalcMaster, team: Team): { team: Team; notes: string[] } {
+export function resolveTeam(master: CalcMaster, team: Team, versionGroup = defaultVersionGroup(master)):
+  { team: Team; notes: string[] } {
   const forms = new Map(master.forms.map((f) => [f.poke_id, f]));
   const natures = new Set(master.natures.map((n) => n.name));
   const items = new Set(master.items.map((i) => i.name));
@@ -296,7 +297,7 @@ export function resolveTeam(master: CalcMaster, team: Team): { team: Team; notes
       notes.push(`${who}: item ${item} is not in the item list: removed.`);
       item = "";
     }
-    const known = new Set(movesFor(master, form).moves.map((mv) => mv.id));
+    const known = new Set(movesFor(master, form, versionGroup).moves.map((mv) => mv.id));
     const moves = m.moves.filter((id) => known.has(id));
     if (moves.length < m.moves.length) {
       const n = m.moves.length - moves.length;

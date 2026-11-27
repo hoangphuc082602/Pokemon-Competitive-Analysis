@@ -212,7 +212,9 @@ python -m python.crawl_data.data_pokemon
 `data_pokemon` crawls the typing of every `/pokemon` entry, alternate forms included (PokéAPI ids ≥ 10001, e.g. `urshifu-rapid-strike` = 10191), into `data/raw/pokemon_type_raw.csv`. It is resumable (ids already in the CSV are skipped), rate-limited (`--delay`), retries rate limits, server errors and timeouts with backoff (`--retries`), writes failures to `data/raw/pokemon_type_failures.csv` and crawled ids to `data/raw/pokemon_type_raw_progress.csv` and prints base / alternate form counts; `--ids 892 10191` crawls a small range; `--to-mysql` rebuilds the MySQL table `pokemon_types` from the CSV (it then holds alternate forms too).
 
 
-`data_poke_move` (learnsets, Scarlet / Violet version group, into `data/raw/pokemon_moves.csv`) and `data_poke_abi` (abilities, into `data/raw/pokemon_ability.csv`) crawl every `/pokemon` entry the same way, alternate forms included. Importing them does nothing; they write MySQL (`pokemon_moves`, `pokemon_abilities`) only with `--to-mysql`. Rate limits, server errors and timeouts are retried with exponential backoff (`--retries`); other failures go to `<out>_failures.csv`. `<out>_progress.csv` records every crawled id with its row count, so a rerun skips it even when it has no rows (Mega forms have no Scarlet / Violet learnset; a few new Mega forms have no ability in PokéAPI yet).
+`data_poke_move` (learnsets of one PokéAPI version group per run: `scarlet-violet` into `data/raw/pokemon_moves.csv`, `--version-group champions` into `data/raw/pokemon_moves_champions.csv`) and `data_poke_abi` (abilities, into `data/raw/pokemon_ability.csv`) crawl every `/pokemon` entry the same way, alternate forms included. Importing them does nothing; they write MySQL (`pokemon_moves` / `pokemon_moves_champions`, `pokemon_abilities`) only with `--to-mysql`. Rate limits, server errors and timeouts are retried with exponential backoff (`--retries`); other failures go to `<out>_failures.csv`. `<out>_progress.csv` records every crawled id with its row count, so a rerun skips it even when it has no rows (Mega forms have no Scarlet / Violet learnset; a few new Mega forms have no ability in PokéAPI yet).
+
+Each regulation takes its learnsets from one game, set in `python/analytics/regulation_sources.py`: `gen9vgc*` → `scarlet-violet`, `gen9championsvgc*` → `champions`. A regulation of a new family makes `calc_master` fail until it is mapped there and its version group is crawled. Abilities are the same for every regulation (PokéAPI does not split them per game; its `past_abilities` are those of earlier generations).
 
 `data_ability` crawls every id listed by `/ability` (name and English short effect) into `data/raw/ability_raw.csv` with the same retries, `<out>_failures.csv`, `<out>_progress.csv` and resume; ids already in an older `ability_raw.csv` count as crawled. Importing it does nothing; it rebuilds the MySQL table `ability` only with `--to-mysql`. `calc_master` needs every `abi_id` of `pokemon_ability.csv` in `ability_raw.csv`, so rerun `data_ability` after a new `data_poke_abi` crawl.
 
@@ -315,7 +317,8 @@ The browser UI (ADR-013) is a static Vite + TypeScript app in `web/`. It never q
 
 ```bash
 python -m python.analytics.export_web --agg data/aggregates --out web/public/data   # needs pokemon_usage (and partner_stats / matchup_stats for the species view) first
-python -m python.analytics.calc_master --master data/raw --forms web/public/data/species_forms.json --out web/public/data/calc_master.json   # damage calc game data
+python -m python.crawl_data.data_poke_move --version-group champions                          # once per game (and scarlet-violet, the default)
+python -m python.analytics.calc_master --master data/raw --data web/public/data --out web/public/data/calc_master.json   # damage calc game data
 cd web
 npm ci
 npm test          # Vitest: loader and selectors
@@ -350,7 +353,7 @@ These are tracked openly rather than hidden:
 
 - **Damage calculator** does not model spread moves, critical hits, weather, burn, item and ability damage modifiers, Tera STAB or stat stages yet. Wind Rider's immunity to wind moves is not modelled either (it needs a list of wind moves).
 - **Web data is a frozen snapshot** (2026-10-14). The site is not refreshed automatically; a new snapshot means re-running the export and committing `web/public/data/`.
-- **Calculator / team game data.** Learnsets are Scarlet / Violet only and the crawled ability and learnset tables have no rows for alternate forms (such a form borrows its species' default form, shown on the page), so Champions-era and later movesets are incomplete. Which items a regulation allows is not checked. Team analysis has no Tera, weather, Tailwind or Trick Room, and its synergy score is a simple tally, not a validated measure.
+- **Calculator / team game data.** The calculator lists the Pokémon of the selected regulation with its game's learnsets (Scarlet / Violet or Champions). Where PokéAPI has no learnset for a form in that game, the page shows one from the default form or from the other game, and says which. The team builder always uses the newest regulation's game. Abilities are not split per game. Which items a regulation allows is not checked. Team analysis has no Tera, weather, Tailwind or Trick Room, and its synergy score is a simple tally, not a validated measure.
 - **Share links** carry the whole team in the URL fragment: a link from another link version is refused, not converted.
 - **Player table.** `players` has one row per player-battle; a deduplicated players table does not exist yet, so per-player statistics are not available.
 - **Forms.** Nine species are masked at team preview; their form is known only for Pokémon that entered the field, and the rest stay `unobserved`. Form-level statistics for them use the sent-out population. See [`Metrics.md`](Metrics.md).
@@ -369,7 +372,7 @@ These are tracked openly rather than hidden:
 
 1. Crawl hardening: retried, resumable PokéAPI crawls with failure files ([#44](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/issues/44), done).
 2. Team Builder follow-ups: Showdown paste and share-link limitations ([#41](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/issues/41)).
-3. Learnsets and abilities per regulation, Champions and later regulations included, for the calculator and the team builder ([#37](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/issues/37)).
+3. Learnsets per regulation, Champions included, for the calculator (regulation picker) and the team builder ([#37](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/issues/37)).
 
 **v2.0:** recommendation (team completion and member swap) on the web app, **evaluated on hold-out battles** against popularity, lift and Word2Vec baselines before any claim is made ([#46](https://github.com/hoangphuc082602/Pokemon-Competitive-Analysis/issues/46)).
 

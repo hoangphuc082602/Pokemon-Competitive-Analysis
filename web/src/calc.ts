@@ -1,7 +1,7 @@
 // Pure logic of the Damage Calculator page (#16, ADR-014): master data parsing, the request sent to the Python
 // façade (python/calculations/calc_facade.py) and result labels. No DOM, no Pyodide: tested with Vitest.
 
-export const CALC_SCHEMA_VERSION = 2;   // calc_master.json, python/analytics/calc_master.py (2: items, #17)
+export const CALC_SCHEMA_VERSION = 3;   // calc_master.json, python/analytics/calc_master.py (3: learnsets per game, #37; 2: items, #17)
 export const STATS = ["hp", "atk", "def", "spatk", "spdef", "spe"] as const;
 export type Stat = (typeof STATS)[number];
 export type Stats = Record<Stat, number>;
@@ -14,8 +14,24 @@ export interface CalcForm {
   types: string[];
   base_stats: Stats;
   abilities: string[];
+  abilities_from: number | null;   // abilities taken from this default form (PokéAPI has none for the form itself)
+  learnsets: Record<string, Learnset>;   // by PokéAPI version group (the game of a regulation)
+}
+
+/** Damaging moves a form learns in one game, and where they come from: `version_group` / `poke_id` name the game and
+ * form whose learnset this is (another form or game when the data has none for this one), both null = none. */
+export interface Learnset {
   moves: number[];
-  borrowed_from: number | null;   // abilities and/or learnset taken from this default form (no rows for the form itself)
+  version_group: string | null;
+  poke_id: number | null;
+}
+
+/** A regulation of the export, newest first in CalcMaster.regulations (the first is the page default). */
+export interface CalcRegulation {
+  id: string;
+  label: string;
+  version_group: string;   // the game whose learnsets the regulation uses
+  forms: number[];         // poke_ids of the forms seen in its team usage
 }
 
 export interface CalcMove {
@@ -41,6 +57,7 @@ export interface Nature {
 export interface CalcMaster {
   schema_version: number;
   level: number;
+  regulations: CalcRegulation[];
   forms: CalcForm[];
   skipped: string[];
   moves: CalcMove[];
@@ -79,9 +96,10 @@ export function parseCalcMaster(json: unknown): CalcMaster {
   if (m.schema_version !== CALC_SCHEMA_VERSION) {
     throw new CalcDataError(`calc_master.json schema ${m.schema_version}, expected ${CALC_SCHEMA_VERSION}`);
   }
-  for (const key of ["forms", "moves", "natures", "type_chart", "items"] as const) {
+  for (const key of ["regulations", "forms", "moves", "natures", "type_chart", "items"] as const) {
     if (!Array.isArray(m[key])) throw new CalcDataError(`calc_master.json has no ${key} list`);
   }
+  if (m.regulations!.length === 0) throw new CalcDataError("calc_master.json has no regulation");
   return m as CalcMaster;
 }
 
@@ -92,11 +110,36 @@ export function displayName(slug: string): string {
 
 const byName = (a: CalcMove, b: CalcMove) => a.name.localeCompare(b.name);
 
-/** Damaging moves the form learns; a form without a learnset in the master data gets every exported move, flagged. */
-export function movesFor(master: CalcMaster, form: CalcForm): { moves: CalcMove[]; fromLearnset: boolean } {
-  if (form.moves.length === 0) return { moves: [...master.moves].sort(byName), fromLearnset: false };
-  const ids = new Set(form.moves);
+export const GAME_LABEL: Record<string, string> = { "scarlet-violet": "Scarlet / Violet", champions: "Champions" };
+const gameLabel = (group: string) => GAME_LABEL[group] ?? displayName(group);
+
+/** The game of the default regulation (the newest one): the learnsets the team builder uses. */
+export function defaultVersionGroup(master: CalcMaster): string {
+  return master.regulations[0].version_group;
+}
+
+/** Damaging moves the form learns in `versionGroup`; without a learnset (or with no damaging move in it) every
+ * exported move, flagged. */
+export function movesFor(master: CalcMaster, form: CalcForm, versionGroup: string): { moves: CalcMove[]; fromLearnset: boolean } {
+  const own = form.learnsets[versionGroup]?.moves ?? [];
+  if (own.length === 0) return { moves: [...master.moves].sort(byName), fromLearnset: false };
+  const ids = new Set(own);
   return { moves: master.moves.filter((mv) => ids.has(mv.id)).sort(byName), fromLearnset: true };
+}
+
+/** Where the moves listed for `form` in `versionGroup` come from, when not from its own learnset in that game (BR-05:
+ * a borrowed or fallback learnset is never shown silently); "" when they do. */
+export function learnsetNote(master: CalcMaster, form: CalcForm, versionGroup: string): string {
+  const ls = form.learnsets[versionGroup];
+  if (!ls || ls.version_group === null) return "No learnset in the game data for this form: every exported move is listed.";
+  if (!movesFor(master, form, versionGroup).fromLearnset) {
+    return "This form's learnset has no damaging move: every exported move is listed.";
+  }
+  if (ls.version_group === versionGroup && ls.poke_id === form.poke_id) return "";
+  const from = master.forms.find((f) => f.poke_id === ls.poke_id);
+  const whose = ls.poke_id === form.poke_id ? "Its" : `${from ? displayName(from.form) : form.species}'s`;   // the default form may not be exported
+  const lacking = ls.version_group === versionGroup ? "the game data" : `the ${gameLabel(versionGroup)} data`;
+  return `Moves: ${whose} ${gameLabel(ls.version_group)} learnset (${lacking} has none for this form).`;
 }
 
 const fill = (v: number): Stats => ({ hp: v, atk: v, def: v, spatk: v, spdef: v, spe: v });

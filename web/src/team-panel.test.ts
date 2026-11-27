@@ -6,10 +6,10 @@ import { mountTeamPanel } from "./team-panel";
 
 const stats = (v: number) => ({ hp: v, atk: v, def: v, spatk: v, spdef: v, spe: v });
 const MASTER: CalcMaster = {
-  schema_version: 2, level: 50, skipped: [], type_chart: [],
+  schema_version: 3, level: 50, regulations: [{ id: "gen9vgc2025regi", label: "Reg I 2025", version_group: "scarlet-violet", forms: [] }], skipped: [], type_chart: [],
   items: [{ name: "focus-sash", category: "held-items" }],
   forms: [{ poke_id: 987, species: "Flutter Mane", form: "flutter-mane", types: ["ghost", "fairy"], base_stats: stats(100),
-    abilities: ["protosynthesis"], moves: [585], borrowed_from: null }],
+    abilities: ["protosynthesis"], abilities_from: null, learnsets: { "scarlet-violet": { moves: [585], version_group: "scarlet-violet", poke_id: 987 } } }],
   moves: [{ id: 585, name: "moonblast", type: "fairy", power: 95, damage_class: "special" }],
   natures: [{ name: "hardy", increased: null, decreased: null }, { name: "timid", increased: "spe", decreased: "atk" }],
 };

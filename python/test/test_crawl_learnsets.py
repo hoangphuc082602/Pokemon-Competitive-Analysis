@@ -185,3 +185,33 @@ def test_main_crawls_the_given_ids_into_the_csvs(monkeypatch, tmp_path):
         assert pd.read_csv(tmp_path / out)["pokemon_id"].unique().tolist() == [10191]
         assert pd.read_csv(tmp_path / out.replace(".csv", "_failures.csv"))["pokemon_id"].tolist() == [404]
         assert (tmp_path / out.replace(".csv", "_progress.csv")).exists()
+
+
+# Trimmed recording of /pokemon/445 (garchomp), 2026-11-27: Champions (#37) teaches Brutal Swing, not Dragon Breath.
+GARCHOMP = {"id": 445, "name": "garchomp", "moves": [
+    {"move": _ref("move", "earthquake", 89),
+     "version_group_details": [_detail("scarlet-violet", "machine", 4, 0), _detail("champions", "train", 12, 0)]},
+    {"move": _ref("move", "dragon-breath", 225), "version_group_details": [_detail("scarlet-violet", "level-up", 1, 1)]},
+    {"move": _ref("move", "brutal-swing", 693), "version_group_details": [_detail("champions", "train", 12, 0)]},
+]}
+
+
+def test_the_champions_learnset_differs_from_the_scarlet_violet_one():
+    assert [(r["move_id"], r["learn_method"]) for r in extract_moves(GARCHOMP, "champions")] == [(89, 12), (693, 12)]
+    assert [(r["move_id"], r["learn_method"]) for r in extract_moves(GARCHOMP, "scarlet-violet")] == [(89, 4), (225, 1)]
+
+
+def test_main_crawls_the_champions_learnset_into_its_own_csv(monkeypatch, tmp_path):
+    from python.crawl_data import data_poke_move
+    monkeypatch.setattr(requests.Session, "get", lambda self, url, timeout: _Response(200, GARCHOMP))
+    monkeypatch.chdir(tmp_path)
+    assert data_poke_move.main(["--version-group", "champions", "--ids", "445", "--delay", "0"]) == 0
+    assert pd.read_csv(tmp_path / "data/raw/pokemon_moves_champions.csv")["move_id"].tolist() == [89, 693]
+    assert not (tmp_path / "data/raw/pokemon_moves.csv").exists()          # the Scarlet / Violet file is untouched
+    assert (tmp_path / "data/raw/pokemon_moves_champions_progress.csv").exists()
+
+
+def test_a_version_group_no_regulation_uses_is_refused():
+    from python.crawl_data import data_poke_move
+    with pytest.raises(SystemExit):
+        data_poke_move.main(["--version-group", "sword-shield", "--ids", "445"])
