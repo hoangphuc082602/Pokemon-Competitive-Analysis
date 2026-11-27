@@ -16,8 +16,8 @@ const MASTER: CalcMaster = {
 const TEAM: Team = {
   name: "t",
   members: [
-    { poke_id: 2, ability: "intimidate", item: "", nature: "hardy", evs: stats(0), ivs: stats(31), moves: [] },
-    { poke_id: 1, ability: "protosynthesis", item: "choice-scarf", nature: "timid", evs: { ...stats(0), spe: 252 },
+    { poke_id: 2, ability: "intimidate", item: "", tera: "", nature: "hardy", evs: stats(0), ivs: stats(31), moves: [] },
+    { poke_id: 1, ability: "protosynthesis", item: "choice-scarf", tera: "", nature: "timid", evs: { ...stats(0), spe: 252 },
       ivs: stats(31), moves: [5] },
   ],
 };

@@ -65,6 +65,7 @@ function memberPaste(master: CalcMaster, moves: Map<number, string>, form: CalcF
     showdownName(form) + (m.item ? ` @ ${spelled(m.item)}` : ""),
     `Ability: ${spelled(m.ability)}`,
     `Level: ${master.level}`,
+    ...(m.tera ? [`Tera Type: ${displayName(m.tera)}`] : []),
     ...(evs ? [`EVs: ${evs}`] : []),
     `${displayName(m.nature)} Nature`,
     ...(ivs ? [`IVs: ${ivs}`] : []),

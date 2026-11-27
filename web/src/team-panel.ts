@@ -14,6 +14,7 @@ import {
   MAX_MOVES,
   MAX_NAME,
   memberFromSide,
+  TERA_TYPES,
   resolveTeam,
   sideFromMember,
   teamError,
@@ -91,14 +92,16 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
       const refreshLinks = () => {
         for (const side of ["attacker", "defender"] as const) calcLinks[side].href = calcUrl + calcLink(side, team.members[i]);
       };
-      const editor = createPokemonEditor(box, master, { moveSlots: MAX_MOVES, withItem: true, onChange: () => {
-        team.members[i] = memberFromSide(editor.read(), editor.moves(), editor.item());
-        edited();
-        refreshLinks();
-        renderClause();
-        onChange(team);
-      } });
-      editor.load(sideFromMember(forms.get(m.poke_id)!, m), m.moves, m.item);   // resolved team: the form is in the data
+      const editor = createPokemonEditor(box, master, { moveSlots: MAX_MOVES, withItem: true, teraTypes: TERA_TYPES,
+        onChange: () => {
+          team.members[i] = memberFromSide(editor.read(), editor.moves(), editor.item(), editor.tera());
+          edited();
+          refreshLinks();
+          renderClause();
+          onChange(team);
+        } });
+      // resolved team: the form is in the data
+      editor.load(sideFromMember(forms.get(m.poke_id)!, m), m.moves, m.item, m.tera);
       refreshLinks();
       const remove = button("Remove");
       remove.addEventListener("click", () => {

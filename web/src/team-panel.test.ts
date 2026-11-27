@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import type { CalcMaster } from "./calc";
-import { createTeamStore } from "./team";
+import { createTeamStore, decodeTeam } from "./team";
 import { mountTeamPanel } from "./team-panel";
 
 const stats = (v: number) => ({ hp: v, atk: v, def: v, spatk: v, spdef: v, spe: v });
@@ -57,6 +57,16 @@ describe("team panel", () => {
     shown();
     p.button("Remove").click();                 // a member removed
     expect([p.share.hidden, p.paste.hidden]).toEqual([true, true]);
+  });
+
+  it("keeps the picked Tera type in the share link and the Showdown paste", () => {
+    const p = mount();
+    p.button("Add Pokémon").click();
+    p.pick("Tera type", "fairy");
+    p.button("Showdown paste").click();
+    expect(p.paste.value).toMatch(/^Tera Type: Fairy$/m);
+    p.button("Share link").click();
+    expect(decodeTeam(p.share.value.split("#team=")[1]).members[0].tera).toBe("fairy");
   });
 
   it("asks to copy by hand when the clipboard is unavailable", () => {
