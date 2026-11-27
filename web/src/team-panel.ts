@@ -59,6 +59,13 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
 
   const say = (...lines: string[]) => status.replaceChildren(...lines.flatMap((l, i) => (i ? [el("br"), l] : [l])));
 
+  /** The team changed: the share link and paste shown no longer match it (#41). */
+  const edited = () => {
+    dirty = true;
+    share.hidden = true;
+    paste.hidden = true;
+  };
+
   /** Shows text in its read-only field, selected, and copies it; the field stays as the fallback. */
   const showAndCopy = (field: HTMLInputElement | HTMLTextAreaElement, text: string, copiedMsg: string, fallbackMsg: string) => {
     field.value = text;
@@ -86,10 +93,9 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
       };
       const editor = createPokemonEditor(box, master, { moveSlots: MAX_MOVES, withItem: true, onChange: () => {
         team.members[i] = memberFromSide(editor.read(), editor.moves(), editor.item());
-        dirty = true;
+        edited();
         refreshLinks();
         renderClause();
-        paste.hidden = true;   // the paste shown no longer matches the team
         onChange(team);
       } });
       editor.load(sideFromMember(forms.get(m.poke_id)!, m), m.moves, m.item);   // resolved team: the form is in the data
@@ -97,8 +103,7 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
       const remove = button("Remove");
       remove.addEventListener("click", () => {
         team.members.splice(i, 1);
-        dirty = true;
-        paste.hidden = true;
+        edited();
         renderMembers();
       });
       box.append(el("div", { className: "team-actions" }, calcLinks.attacker, calcLinks.defender, remove));
@@ -140,10 +145,10 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
     if (team.members.length >= MAX_MEMBERS) return;
     const first = [...master.forms].sort((a, b) => displayName(a.form).localeCompare(displayName(b.form)))[0];
     team.members.push(memberFromSide(defaultSide(first), [], ""));
-    dirty = true;
+    edited();
     renderMembers();
   });
-  name.addEventListener("input", () => { team.name = name.value; dirty = true; });
+  name.addEventListener("input", () => { team.name = name.value; edited(); });
   saved.addEventListener("change", () => {
     const pick = store.list().find((t) => t.id === saved.value);
     if (!pick || !discardOk()) return renderSaved();
