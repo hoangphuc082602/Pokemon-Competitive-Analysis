@@ -214,6 +214,8 @@ python -m python.crawl_data.data_pokemon
 
 `data_poke_move` (learnsets, Scarlet / Violet version group, into `data/raw/pokemon_moves.csv`) and `data_poke_abi` (abilities, into `data/raw/pokemon_ability.csv`) crawl every `/pokemon` entry the same way, alternate forms included. Importing them does nothing; they write MySQL (`pokemon_moves`, `pokemon_abilities`) only with `--to-mysql`. Rate limits, server errors and timeouts are retried with exponential backoff (`--retries`); other failures go to `<out>_failures.csv`. `<out>_progress.csv` records every crawled id with its row count, so a rerun skips it even when it has no rows (Mega forms have no Scarlet / Violet learnset; a few new Mega forms have no ability in PokéAPI yet).
 
+`data_ability` crawls every id listed by `/ability` (name and English short effect) into `data/raw/ability_raw.csv` with the same retries, `<out>_failures.csv`, `<out>_progress.csv` and resume; ids already in an older `ability_raw.csv` count as crawled. Importing it does nothing; it rebuilds the MySQL table `ability` only with `--to-mysql`. `calc_master` needs every `abi_id` of `pokemon_ability.csv` in `ability_raw.csv`, so rerun `data_ability` after a new `data_poke_abi` crawl.
+
 ### 4. Run the app
 
 ```bash
