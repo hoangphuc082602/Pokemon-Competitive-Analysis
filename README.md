@@ -107,14 +107,14 @@ Python · pandas · NumPy · PyArrow / Parquet · SQLAlchemy + PyMySQL · MySQL 
 │   ├── analytics/         # aggregates (usage, Tera, partners, trend), dimension tables, MySQL writer
 │   ├── models/            # build_pokemon(): final stats from species + nature + EV / IV
 │   ├── services/          # team persistence (save / load teams)
-│   ├── recommendation/    # rule-based role recommender (early prototype)
+│   ├── recommendation/    # rule-based role recommender (early prototype); Word2Vec baseline training (train_word2vec)
 │   ├── ml/                # team feature helpers
 │   ├── untils/            # shared constants
 │   └── test/              # pytest suite
 ├── parser/                # battle-log state machine and the batch runner
 ├── migrations/            # SQL run by hand: species / username columns, VGC scope table, optional raw-table indexes
 ├── documents/                  # Power BI plan
-├── src/                   # Word2Vec prototype (team generator, training, similarity query)
+├── src/                   # Word2Vec prototype: team generator, training CLI (python src/train_word2vec.py), similarity query
 ├── streamlit_app/         # app.py and pages/
 ├── models/                # trained Word2Vec model
 ├── Schema.py              # prints row counts and columns of every table (used to produce schema.sql)

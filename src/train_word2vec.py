@@ -1,41 +1,28 @@
-from gensim.models import Word2Vec
-from team_generator import TeamGenerator
+"""CLI: train the Word2Vec baseline on the whole team-slot Parquet and save it.
 
-generator = TeamGenerator(
-    "data/output/battle_team_slot.parquet"
-)
+Run from the repository root: ``python src/train_word2vec.py`` (or
+``python -m src.train_word2vec``). Training itself is
+``python.recommendation.word2vec_baseline.train_word2vec``; nothing runs on import.
+"""
+import sys
+from pathlib import Path
 
-model = Word2Vec(
-    vector_size=128,
-    window=6,
-    min_count=100,
-    workers=8,
-    sg=1
-)
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:  # run as a script: only src/ is on sys.path
+    sys.path.append(str(ROOT))
 
-print("Building vocab...")
+from python.recommendation.word2vec_baseline import train_word2vec  # noqa: E402
+from src.team_generator import TeamGenerator  # noqa: E402
 
-model.build_vocab(generator)
+PARQUET_PATH = "data/output/battle_team_slot.parquet"
+MODEL_PATH = "models/pokemon_embedding.model"
 
-print(
-    f"Vocabulary size: "
-    f"{len(model.wv)}"
-)
 
-generator = TeamGenerator(
-    "data/output/battle_team_slot.parquet"
-)
+def main(parquet_path: str = PARQUET_PATH, model_path: str = MODEL_PATH) -> None:
+    model = train_word2vec(TeamGenerator(parquet_path))
+    model.save(model_path)
+    print("Done")
 
-print("Training...")
 
-model.train(
-    generator,
-    total_examples=model.corpus_count,
-    epochs=10
-)
-
-model.save(
-    "models/pokemon_embedding.model"
-)
-
-print("Done")
+if __name__ == "__main__":
+    main()
