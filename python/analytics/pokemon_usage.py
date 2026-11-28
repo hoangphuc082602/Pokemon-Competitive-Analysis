@@ -115,6 +115,18 @@ KEYS = ["regulation", "rating_band", "species_id", "poke_id", "form_basis"]
 COUNTS = ["appearances", "wins", "sent_out", "sent_out_wins", "leads"]
 
 
+def form_keys(slots: pd.DataFrame, species_of: dict, poke_of: dict) -> tuple[pd.Series, pd.Series, np.ndarray]:
+    """species_id, poke_id and form_basis of each team slot (columns pokemon_name, species_observed, form_status).
+    species_id is NaN when the preview name is not in the mapping; poke_id is NaN when the form is unknown."""
+    name, observed = slots["pokemon_name"].astype(object), slots["species_observed"].astype(object)
+    status = slots["form_status"].astype(object)
+    form_name = np.where(status == "listed", name, np.where(status == "observed", observed, ""))
+    species_id = name.map(species_of)
+    poke_id = pd.Series(form_name, index=slots.index).map(poke_of)
+    basis = np.where(poke_id.notna(), status, np.where(status.isin(["unobserved", "ambiguous"]), "unobserved", "species_only"))
+    return species_id, poke_id, basis
+
+
 def aggregate(team_slot_path: Path, scope: pd.DataFrame, name_map: pd.DataFrame, batch_size: int = 1_000_000):
     """Returns (usage counts per grain, number of in-scope slots whose name is not in the mapping)."""
     index = pd.Index(scope.index.astype(str))
@@ -134,12 +146,8 @@ def aggregate(team_slot_path: Path, scope: pd.DataFrame, name_map: pd.DataFrame,
         df, pos = df[keep].reset_index(drop=True), pos[keep]
         if df.empty:
             continue
-        name, observed, status = df["pokemon_name"].astype(object), df["species_observed"].astype(object), df["form_status"].astype(object)
-        form_name = np.where(status == "listed", name, np.where(status == "observed", observed, ""))
-        species_id = name.map(species_of)
-        poke_id = pd.Series(form_name).map(poke_of)
+        species_id, poke_id, basis = form_keys(df, species_of, poke_of)
         unmapped += int(species_id.isna().sum())
-        basis = np.where(poke_id.notna(), status, np.where(status.isin(["unobserved", "ambiguous"]), "unobserved", "species_only"))
         is_p1 = df["player_side"].to_numpy() == "p1"
         won = np.where(is_p1, p1_win[pos], ~p1_win[pos])
         band = rating_band(np.where(is_p1, p1_rating[pos], p2_rating[pos]))
