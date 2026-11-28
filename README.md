@@ -131,7 +131,7 @@ Python · pandas · NumPy · PyArrow / Parquet · SQLAlchemy + PyMySQL · MySQL 
 │   ├── analytics/         # aggregates (usage, Tera, partners, trend), dimension tables, MySQL writer
 │   ├── models/            # build_pokemon(): final stats from species + nature + EV / IV
 │   ├── services/          # team persistence (save / load teams)
-│   ├── recommendation/    # rule-based role recommender (early prototype); Word2Vec baseline training (train_word2vec); recommender component tables (components: usage per regulation × band, #50)
+│   ├── recommendation/    # rule-based role recommender (early prototype); Word2Vec baseline training (train_word2vec); recommender component tables (components: usage per regulation × band, #50); evaluator (evaluation: temporal split, team dedup, leave-one-out Hit@10 / MRR, #51)
 │   ├── ml/                # team feature helpers
 │   ├── untils/            # shared constants
 │   └── test/              # pytest suite
@@ -291,6 +291,12 @@ Recommender usage component (#50; writes `recommendation_usage_component.parquet
 
 ```bash
 python -m python.recommendation.components --output-dir data/output --out data/aggregates
+```
+
+Recommender evaluation, popularity baseline (#51): temporal split by week within each regulation (train 70% / validation / test 15% of the battles), identical teams of one player counted once, leave-one-out Hit@10 and MRR per regulation × rating band with the test size; cells under 100 test teams are listed as skipped. Each step is cached in `--work` and reused on the next run (`--fresh` starts again); writes `evaluation_popularity.md` and `.csv` there:
+
+```bash
+python -m python.recommendation.evaluation --output-dir data/output --work data/aggregates/evaluation
 ```
 
 `pokemon_usage` must run before `tera_stats` (it reads its output for the denominators). Each script prints sanity checks before the results (average team size close to 6, win rate over all slots close to 50%, at most 4 Pokémon sent out per team, pairs per team close to 15) and the figures are cross-checked between modules.
