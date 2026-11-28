@@ -131,7 +131,7 @@ Python · pandas · NumPy · PyArrow / Parquet · SQLAlchemy + PyMySQL · MySQL 
 │   ├── analytics/         # aggregates (usage, Tera, partners, trend), dimension tables, MySQL writer
 │   ├── models/            # build_pokemon(): final stats from species + nature + EV / IV
 │   ├── services/          # team persistence (save / load teams)
-│   ├── recommendation/    # rule-based role recommender (early prototype)
+│   ├── recommendation/    # rule-based role recommender (early prototype); Word2Vec baseline training (train_word2vec)
 │   ├── ml/                # team feature helpers
 │   ├── untils/            # shared constants
 │   └── test/              # pytest suite
