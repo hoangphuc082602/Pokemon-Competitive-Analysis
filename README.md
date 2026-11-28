@@ -131,7 +131,7 @@ Python · pandas · NumPy · PyArrow / Parquet · SQLAlchemy + PyMySQL · MySQL 
 │   ├── analytics/         # aggregates (usage, Tera, partners, trend), dimension tables, MySQL writer
 │   ├── models/            # build_pokemon(): final stats from species + nature + EV / IV
 │   ├── services/          # team persistence (save / load teams)
-│   ├── recommendation/    # rule-based role recommender (early prototype); Word2Vec baseline training (train_word2vec)
+│   ├── recommendation/    # rule-based role recommender (early prototype); Word2Vec baseline training (train_word2vec); recommender component tables (components: usage per regulation × band, #50)
 │   ├── ml/                # team feature helpers
 │   ├── untils/            # shared constants
 │   └── test/              # pytest suite
@@ -285,6 +285,12 @@ python -m python.analytics.usage_trend --output-dir data/output --species Incine
 python -m python.analytics.matchup_stats --output-dir data/output --species Incineroar       # team-level matchups (A's team vs B's team)
 python -m python.analytics.eda_report --agg data/aggregates --out documents                      # EDA findings and charts -> documents/EDA_FINDINGS.md
 python -m python.analytics.dim_tables --output-dir data/output                               # regulation / rating band / month / species dimensions
+```
+
+Recommender usage component (#50; writes `recommendation_usage_component.parquet` and prints rows and `n` per regulation × rating band):
+
+```bash
+python -m python.recommendation.components --output-dir data/output --out data/aggregates
 ```
 
 `pokemon_usage` must run before `tera_stats` (it reads its output for the denominators). Each script prints sanity checks before the results (average team size close to 6, win rate over all slots close to 50%, at most 4 Pokémon sent out per team, pairs per team close to 15) and the figures are cross-checked between modules.
