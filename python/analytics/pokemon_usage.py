@@ -155,8 +155,14 @@ def aggregate(team_slot_path: Path, scope: pd.DataFrame, name_map: pd.DataFrame,
     return usage, unmapped
 
 
-def build_tables(out_dir: Path, name_map: pd.DataFrame, batch_size: int = 1_000_000):
+def build_tables(out_dir: Path, name_map: pd.DataFrame, batch_size: int = 1_000_000, *, battle_ids=None):
+    """battle_ids: optional subset of battles to count (e.g. a train split); None = every in-scope battle."""
     scope = load_scope(out_dir)
+    if battle_ids is not None:
+        wanted = {str(b) for b in battle_ids}
+        scope = scope[scope.index.astype(str).isin(wanted)]
+        if scope.empty:
+            raise ValueError(f"none of the {len(wanted)} battle_ids is a completed VGC battle of {out_dir}")
     totals = band_totals(scope)
     usage, unmapped = aggregate(out_dir / "battle_team_slot.parquet", scope, name_map, batch_size)
     every = usage.groupby([k for k in KEYS if k != "rating_band"], dropna=False, as_index=False)[COUNTS].sum()
