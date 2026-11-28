@@ -21,16 +21,17 @@ const stats = (v: number) => ({ hp: v, atk: v, def: v, spatk: v, spdef: v, spe: 
 const TEAM: Team = {
   name: "Rain · Pelipper",
   members: [
-    { poke_id: 987, ability: "protosynthesis", item: "booster-energy", nature: "timid", evs: { ...stats(0), hp: 4, spatk: 252, spe: 252 },
-      ivs: { ...stats(31), atk: 0 }, moves: [247, 585, 94, 182] },
-    { poke_id: 727, ability: "intimidate", item: "", nature: "careful", evs: { ...stats(0), hp: 252, spdef: 252, atk: 4 },
+    { poke_id: 987, ability: "protosynthesis", item: "booster-energy", tera: "fairy", nature: "timid",
+      evs: { ...stats(0), hp: 4, spatk: 252, spe: 252 }, ivs: { ...stats(31), atk: 0 }, moves: [247, 585, 94, 182] },
+    { poke_id: 727, ability: "intimidate", item: "", tera: "", nature: "careful", evs: { ...stats(0), hp: 252, spdef: 252, atk: 4 },
       ivs: stats(31), moves: [] },
   ],
 };
 
 describe("team share link", () => {
-  it("decodes what it encodes", () => {
+  it("decodes what it encodes, Tera type included", () => {
     expect(decodeTeam(encodeTeam(TEAM))).toEqual(TEAM);
+    expect(encodeTeam(TEAM)).toMatch(/^2\./);
   });
 
   const reason = (link: string) => {
@@ -45,17 +46,24 @@ describe("team share link", () => {
 
   it("refuses a link of another format version", () => {
     const [, ...rest] = encodeTeam(TEAM).split(".");
-    expect(reason(["2", ...rest].join("."))).toBe("version");
+    expect(reason(["3", ...rest].join("."))).toBe("version");
     expect(reason(["0", ...rest].join("."))).toBe("version");
+  });
+
+  it("refuses a format-1 link (before Tera types) and asks for a new one", () => {
+    const data = btoa(JSON.stringify(["old", []])).replace(/=+$/, "");
+    expect(() => decodeTeam(`1.${data.length}.${data}`)).toThrow(
+      "This link uses team format 1, made before Tera types were stored; this site reads format 2. " +
+      "Ask for a new link.");
   });
 
   it("refuses a truncated link", () => {
     const link = encodeTeam(TEAM);
     expect(reason(link.slice(0, -1))).toBe("truncated");
     expect(reason(link.slice(0, link.length / 2))).toBe("truncated");
-    expect(reason("1.12")).toBe("truncated");   // cut inside the header
-    expect(reason("1.")).toBe("truncated");
-    expect(reason("2.40")).toBe("version");     // another format, even cut short
+    expect(reason("2.12")).toBe("truncated");   // cut inside the header
+    expect(reason("2.")).toBe("truncated");
+    expect(reason("3.40")).toBe("version");     // another format, even cut short
   });
 
   it("refuses a link that is not a team", () => {
@@ -63,18 +71,20 @@ describe("team share link", () => {
     expect(reason("garbage")).toBe("invalid");
     const wrap = (value: unknown) => {
       const data = btoa(JSON.stringify(value)).replace(/=+$/, "");
-      return `1.${data.length}.${data}`;
+      return `2.${data.length}.${data}`;
     };
     expect(reason(wrap({ name: "x" }))).toBe("invalid");
-    const member = [987, "protosynthesis", "timid", [0, 0, 0, 252, 4, 252], [31, 31, 31, 31, 31, 31], [247], "focus-sash"];
+    const member = [987, "protosynthesis", "timid", [0, 0, 0, 252, 4, 252], [31, 31, 31, 31, 31, 31], [247], "focus-sash", "fairy"];
     expect(decodeTeam(wrap(["ok", [member]])).members).toHaveLength(1);
     expect(reason(wrap(["seven", Array(7).fill(member)]))).toBe("invalid");
-    expect(reason(wrap(["evs", [[987, "a", "b", [252, 252, 252, 0, 0, 0], member[4], [], ""]]]))).toBe("invalid");
-    expect(reason(wrap(["iv", [[987, "a", "b", member[3], [32, 31, 31, 31, 31, 31], [], ""]]]))).toBe("invalid");
-    expect(reason(wrap(["moves", [[987, "a", "b", member[3], member[4], [1, 2, 3, 4, 5], ""]]]))).toBe("invalid");
-    expect(reason(wrap(["item", [[987, "a", "b", member[3], member[4], [], 7]]]))).toBe("invalid");
+    expect(reason(wrap(["evs", [[987, "a", "b", [252, 252, 252, 0, 0, 0], member[4], [], "", ""]]]))).toBe("invalid");
+    expect(reason(wrap(["iv", [[987, "a", "b", member[3], [32, 31, 31, 31, 31, 31], [], "", ""]]]))).toBe("invalid");
+    expect(reason(wrap(["moves", [[987, "a", "b", member[3], member[4], [1, 2, 3, 4, 5], "", ""]]]))).toBe("invalid");
+    expect(reason(wrap(["item", [[987, "a", "b", member[3], member[4], [], 7, ""]]]))).toBe("invalid");
     expect(reason(wrap(["two sashes", [member, member]]))).toBe("invalid");
-    expect(reason(wrap(["id", [["987", "a", "b", member[3], member[4], [], ""]]]))).toBe("invalid");
+    expect(reason(wrap(["tera", [[...member.slice(0, 7), "shadow"]]]))).toBe("invalid");
+    expect(reason(wrap(["no tera", [member.slice(0, 7)]]))).toBe("invalid");
+    expect(reason(wrap(["id", [["987", "a", "b", member[3], member[4], [], "", ""]]]))).toBe("invalid");
   });
 });
 
@@ -104,6 +114,19 @@ describe("saved teams", () => {
     const reopened = createTeamStore(() => storage);
     expect(reopened.list().map((s) => s.name)).toEqual(["Trick Room", "Rain · Pelipper"]);
     expect(reopened.list()[1]).toMatchObject(TEAM);
+  });
+
+  it("reads teams saved before Tera types (vgc-teams-v1) with no Tera type, and leaves them in place", () => {
+    const storage = memoryStorage();
+    const old = { id: "a1", saved_at: "2026-01-01T00:00:00.000Z", name: "Old",
+      members: TEAM.members.map(({ tera: _, ...m }) => m) };
+    storage.setItem("vgc-teams-v1", JSON.stringify([old]));
+    const store = createTeamStore(() => storage);
+    expect(TEAMS_KEY).toBe("vgc-teams-v2");
+    expect(store.list()).toEqual([{ ...old, members: TEAM.members.map((m) => ({ ...m, tera: "" })) }]);
+    store.save({ name: "New", members: [] });
+    expect(store.list().map((t) => t.name)).toEqual(["New", "Old"]);
+    expect(JSON.parse(storage.getItem("vgc-teams-v1")!)).toEqual([old]);
   });
 
   it("updates a team saved under the same id and deletes a team", () => {
@@ -145,9 +168,9 @@ describe("saved teams", () => {
 
 describe("resolveTeam (a link made with another data snapshot)", () => {
   const MASTER: CalcMaster = {
-    schema_version: 2, level: 50, items: [{ name: "focus-sash", category: "held-items" }], skipped: [], type_chart: [],
+    schema_version: 3, level: 50, regulations: [{ id: "gen9vgc2025regi", label: "Reg I 2025", version_group: "scarlet-violet", forms: [] }], items: [{ name: "focus-sash", category: "held-items" }], skipped: [], type_chart: [],
     forms: [{ poke_id: 987, species: "Flutter Mane", form: "flutter-mane", types: ["ghost", "fairy"], base_stats: stats(100),
-      abilities: ["protosynthesis"], moves: [247, 585], borrowed_from: null }],
+      abilities: ["protosynthesis"], abilities_from: null, learnsets: { "scarlet-violet": { moves: [247, 585], version_group: "scarlet-violet", poke_id: 987 } } }],
     moves: [
       { id: 247, name: "shadow-ball", type: "ghost", power: 80, damage_class: "special" },
       { id: 585, name: "moonblast", type: "fairy", power: 95, damage_class: "special" },

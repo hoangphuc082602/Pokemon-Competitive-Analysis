@@ -2,7 +2,7 @@
 
 Audience: a recruiter or analyst who opens the report for two minutes, and a player who wants to explore one regulation.
 Rule for every page: **state the population** (regulation, rating band) and show the **sample size** next to any rate.
-All numbers come from the aggregate tables described in [`METRICS.md`](../METRICS.md); nothing is recomputed from raw replays.
+All numbers come from the aggregate tables described in [`Metrics.md`](../Metrics.md); nothing is recomputed from raw replays.
 
 ## 1. Data model
 
@@ -118,7 +118,7 @@ Visual-level filters used everywhere: `[Teams] >= 100` (hide tiny samples; the M
    `form_basis` (`observed` / `unobserved`), so the unknown share is visible.
 4. **Teammates.** A heat map of lift for the 20 most used species (matrix, species A × species B on `pair_directed`; Top N on both axes by `Teams`), with a size filter on `teams_both`.
 5. **Method and data notes.** Scope (VGC only, completed battles), the population numbers, and the caveats from
-   `METRICS.md`: upload month, tail months, Illusion, form-masked species, Tera win rates not comparable, lift is not synergy. Also state why there is no matchup page:
+   `Metrics.md`: upload month, tail months, Illusion, form-masked species, Tera win rates not comparable, lift is not synergy. Also state why there is no matchup page:
    team-level counters deviate little from expectation (median 0.6-0.8 pp, `documents/EDA_FINDINGS.md`) and the battles of one player are not independent.
 
 ## 4. Build order

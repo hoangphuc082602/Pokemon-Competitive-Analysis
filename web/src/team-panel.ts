@@ -14,6 +14,7 @@ import {
   MAX_MOVES,
   MAX_NAME,
   memberFromSide,
+  TERA_TYPES,
   resolveTeam,
   sideFromMember,
   teamError,
@@ -59,6 +60,23 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
 
   const say = (...lines: string[]) => status.replaceChildren(...lines.flatMap((l, i) => (i ? [el("br"), l] : [l])));
 
+  /** The team changed: the share link and paste shown no longer match it (#41). */
+  const edited = () => {
+    dirty = true;
+    share.hidden = true;
+    paste.hidden = true;
+  };
+
+  /** Shows text in its read-only field, selected, and copies it; the field stays as the fallback. */
+  const showAndCopy = (field: HTMLInputElement | HTMLTextAreaElement, text: string, copiedMsg: string, fallbackMsg: string) => {
+    field.value = text;
+    field.hidden = false;
+    field.select();
+    const copied = navigator.clipboard?.writeText(text);   // undefined outside a secure context
+    if (!copied) return say(fallbackMsg);
+    copied.then(() => say(copiedMsg), () => say(fallbackMsg));
+  };
+
   const renderSaved = () => {
     const items: [string, string][] = store.list().map((t) => [t.id, `${t.name || UNTITLED} (${t.members.length})`]);
     if (savedId === null) items.unshift(["", "— not saved —"]);
@@ -74,21 +92,21 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
       const refreshLinks = () => {
         for (const side of ["attacker", "defender"] as const) calcLinks[side].href = calcUrl + calcLink(side, team.members[i]);
       };
-      const editor = createPokemonEditor(box, master, { moveSlots: MAX_MOVES, withItem: true, onChange: () => {
-        team.members[i] = memberFromSide(editor.read(), editor.moves(), editor.item());
-        dirty = true;
-        refreshLinks();
-        renderClause();
-        paste.hidden = true;   // the paste shown no longer matches the team
-        onChange(team);
-      } });
-      editor.load(sideFromMember(forms.get(m.poke_id)!, m), m.moves, m.item);   // resolved team: the form is in the data
+      const editor = createPokemonEditor(box, master, { moveSlots: MAX_MOVES, withItem: true, teraTypes: TERA_TYPES,
+        onChange: () => {
+          team.members[i] = memberFromSide(editor.read(), editor.moves(), editor.item(), editor.tera());
+          edited();
+          refreshLinks();
+          renderClause();
+          onChange(team);
+        } });
+      // resolved team: the form is in the data
+      editor.load(sideFromMember(forms.get(m.poke_id)!, m), m.moves, m.item, m.tera);
       refreshLinks();
       const remove = button("Remove");
       remove.addEventListener("click", () => {
         team.members.splice(i, 1);
-        dirty = true;
-        paste.hidden = true;
+        edited();
         renderMembers();
       });
       box.append(el("div", { className: "team-actions" }, calcLinks.attacker, calcLinks.defender, remove));
@@ -130,10 +148,10 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
     if (team.members.length >= MAX_MEMBERS) return;
     const first = [...master.forms].sort((a, b) => displayName(a.form).localeCompare(displayName(b.form)))[0];
     team.members.push(memberFromSide(defaultSide(first), [], ""));
-    dirty = true;
+    edited();
     renderMembers();
   });
-  name.addEventListener("input", () => { team.name = name.value; dirty = true; });
+  name.addEventListener("input", () => { team.name = name.value; edited(); });
   saved.addEventListener("change", () => {
     const pick = store.list().find((t) => t.id === saved.value);
     if (!pick || !discardOk()) return renderSaved();
@@ -168,28 +186,24 @@ export function mountTeamPanel(root: HTMLElement, master: CalcMaster, store: Tea
   shareBtn.addEventListener("click", () => {
     const t = current();
     if (typeof t === "string") return say(`No link: ${t}`);
-    share.value = `${location.origin}${location.pathname}${LINK_PREFIX}${encodeTeam(t)}`;
-    share.hidden = false;
-    share.select();
-    const copied = navigator.clipboard?.writeText(share.value);   // undefined outside a secure context
-    if (!copied) return say("Copy the share link below.");
-    copied.then(
-      () => say("Share link copied. Anyone opening it sees this team; their saved teams are not changed."),
-      () => say("Copy the share link below."));
+    showAndCopy(share, `${location.origin}${location.pathname}${LINK_PREFIX}${encodeTeam(t)}`,
+      "Share link copied. Anyone opening it sees this team; their saved teams are not changed.",
+      "Copy the share link below.");
   });
 
   pasteBtn.addEventListener("click", () => {
     const t = current();
     if (typeof t === "string") return say(`No paste: ${t}`);
     if (t.members.length === 0) return say("No paste: the team has no Pokémon.");
-    paste.value = showdownPaste(master, t);
-    paste.hidden = false;
-    paste.select();
-    const copied = navigator.clipboard?.writeText(paste.value);   // undefined outside a secure context
-    if (!copied) return say("Copy the Showdown paste below.");
-    copied.then(
-      () => say("Showdown paste copied: import it in Showdown's teambuilder (Import from text)."),
-      () => say("Copy the Showdown paste below."));
+    let text: string;
+    try {
+      text = showdownPaste(master, t);
+    } catch (e) {
+      console.warn("Showdown paste refused:", e);
+      return say(`No paste: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    showAndCopy(paste, text,
+      "Showdown paste copied: import it in Showdown's teambuilder (Import from text).", "Copy the Showdown paste below.");
   });
 
   /** A share link in the URL fragment: shown as an unsaved team; false when there is none or it was refused. */

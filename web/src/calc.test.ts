@@ -5,6 +5,7 @@ import {
   defaultSide,
   displayName,
   koLabel,
+  learnsetNote,
   movesFor,
   parseCalcMaster,
   spreadError,
@@ -14,18 +15,31 @@ import {
 
 const stats = (v: number) => ({ hp: v, atk: v, def: v, spatk: v, spdef: v, spe: v });
 const MASTER: CalcMaster = {
-  schema_version: 2,
+  schema_version: 3,
   level: 50,
+  regulations: [
+    { id: "gen9championsvgc2026regm-a", label: "Champions Reg M-A 2026", version_group: "champions", forms: [6, 10034] },
+    { id: "gen9vgc2025regi", label: "Reg I 2025", version_group: "scarlet-violet", forms: [6, 10194] },
+  ],
   forms: [
     { poke_id: 6, species: "Charizard", form: "charizard", types: ["fire", "flying"], base_stats: stats(80),
-      abilities: ["blaze", "solar-power"], moves: [53], borrowed_from: null },
+      abilities: ["blaze", "solar-power"], abilities_from: null,
+      learnsets: { "scarlet-violet": { moves: [53], version_group: "scarlet-violet", poke_id: 6 },
+        champions: { moves: [53, 394], version_group: "champions", poke_id: 6 } } },
+    { poke_id: 10034, species: "Charizard", form: "charizard-mega-x", types: ["fire", "dragon"], base_stats: stats(100),
+      abilities: ["tough-claws"], abilities_from: null,
+      learnsets: { "scarlet-violet": { moves: [53], version_group: "scarlet-violet", poke_id: 6 },
+        champions: { moves: [394], version_group: "champions", poke_id: 10034 } } },
     { poke_id: 10194, species: "Calyrex", form: "calyrex-shadow", types: ["psychic", "ghost"], base_stats: stats(100),
-      abilities: ["unnerve"], moves: [], borrowed_from: 898 },
+      abilities: ["unnerve"], abilities_from: 898,
+      learnsets: { "scarlet-violet": { moves: [], version_group: null, poke_id: null },
+        champions: { moves: [247], version_group: "scarlet-violet", poke_id: 898 } } },
   ],
   skipped: [],
   moves: [
     { id: 247, name: "shadow-ball", type: "ghost", power: 80, damage_class: "special" },
     { id: 53, name: "flamethrower", type: "fire", power: 90, damage_class: "special" },
+    { id: 394, name: "flare-blitz", type: "fire", power: 120, damage_class: "physical" },
   ],
   natures: [
     { name: "hardy", increased: null, decreased: null },
@@ -43,6 +57,7 @@ describe("parseCalcMaster", () => {
     expect(() => parseCalcMaster({ ...MASTER, schema_version: 1 })).toThrow(CalcDataError);
     expect(() => parseCalcMaster({ ...MASTER, items: undefined })).toThrow(CalcDataError);
     expect(() => parseCalcMaster({ ...MASTER, forms: undefined })).toThrow(CalcDataError);
+    expect(() => parseCalcMaster({ ...MASTER, regulations: [] })).toThrow(/regulation/);
   });
 });
 
@@ -53,14 +68,50 @@ describe("displayName", () => {
   });
 });
 
+const [charizard, megaX, shadow] = MASTER.forms;
+const names = (r: { moves: { name: string }[] }) => r.moves.map((m) => m.name);
+
 describe("movesFor", () => {
-  it("lists the form's learnset by name", () => {
-    expect(movesFor(MASTER, MASTER.forms[0])).toEqual({ moves: [MASTER.moves[1]], fromLearnset: true });
+  it("lists the learnset of the selected regulation's game, by name", () => {
+    expect(names(movesFor(MASTER, charizard, "champions"))).toEqual(["flamethrower", "flare-blitz"]);
+    expect(names(movesFor(MASTER, charizard, "scarlet-violet"))).toEqual(["flamethrower"]);
+    expect(movesFor(MASTER, charizard, "champions").fromLearnset).toBe(true);
   });
-  it("falls back to every exported move, flagged, when the form has no learnset", () => {
-    const r = movesFor(MASTER, MASTER.forms[1]);
+  it("falls back to every exported move, flagged, when no game has a learnset for the form", () => {
+    const r = movesFor(MASTER, shadow, "scarlet-violet");
     expect(r.fromLearnset).toBe(false);
-    expect(r.moves.map((m) => m.name)).toEqual(["flamethrower", "shadow-ball"]);
+    expect(names(r)).toEqual(["flamethrower", "flare-blitz", "shadow-ball"]);
+  });
+  it("treats a game missing from the form's learnsets as no learnset", () => {
+    expect(movesFor(MASTER, charizard, "sword-shield").fromLearnset).toBe(false);
+  });
+});
+
+describe("learnsetNote", () => {
+  it("says nothing when the form has its own learnset in the regulation's game", () => {
+    expect(learnsetNote(MASTER, charizard, "champions")).toBe("");
+    expect(learnsetNote(MASTER, megaX, "champions")).toBe("");
+  });
+  it("names the default form whose learnset of the same game is used", () => {
+    expect(learnsetNote(MASTER, megaX, "scarlet-violet"))
+      .toBe("Moves: Charizard's Scarlet / Violet learnset (the game data has none for this form).");
+  });
+  it("names the other game a fallback learnset comes from", () => {
+    expect(learnsetNote(MASTER, shadow, "champions"))
+      .toBe("Moves: Calyrex's Scarlet / Violet learnset (the Champions data has none for this form).");
+  });
+  it("names the form's own learnset of the other game", () => {
+    const own = { ...megaX, learnsets: { champions: { moves: [394], version_group: "scarlet-violet", poke_id: 10034 } } };
+    expect(learnsetNote(MASTER, own, "champions"))
+      .toBe("Moves: Its Scarlet / Violet learnset (the Champions data has none for this form).");
+  });
+  it("tells a learnset without a damaging move apart from no learnset", () => {
+    const statusOnly = { ...megaX, learnsets: { champions: { moves: [], version_group: "champions", poke_id: 10034 } } };
+    expect(learnsetNote(MASTER, statusOnly, "champions"))
+      .toBe("This form's learnset has no damaging move: every exported move is listed.");
+  });
+  it("says every move is listed when there is no learnset", () => {
+    expect(learnsetNote(MASTER, shadow, "scarlet-violet")).toBe("No learnset in the game data for this form: every exported move is listed.");
   });
 });
 
@@ -77,8 +128,8 @@ describe("spreadError", () => {
 
 describe("buildRequest", () => {
   it("sends the façade the picked forms, nature, spread, move and the type chart", () => {
-    const attacker = { ...defaultSide(MASTER.forms[0]), nature: "modest", evs: { ...stats(0), spatk: 252 } };
-    const req = buildRequest(MASTER, attacker, defaultSide(MASTER.forms[1]), MASTER.moves[1]);
+    const attacker = { ...defaultSide(charizard), nature: "modest", evs: { ...stats(0), spatk: 252 } };
+    const req = buildRequest(MASTER, attacker, defaultSide(shadow), MASTER.moves[1]);
     expect(req).toEqual({
       attacker: { types: ["fire", "flying"], ability: "blaze", base_stats: stats(80),
         nature: { increased: "spatk", decreased: "atk" }, evs: { ...stats(0), spatk: 252 }, ivs: stats(31) },

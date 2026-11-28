@@ -2,7 +2,7 @@
 
 Hand-written reading of [`EDA_FINDINGS.md`](EDA_FINDINGS.md), which is generated from the aggregate tables. Population for every
 number: completed VGC battles of the regulation shown, public Showdown replays uploaded between 2023-12 and 2026-05, regulations with at
-least 50,000 player-battles (see [`METRICS.md`](../METRICS.md)). Each finding separates what was **counted** (fact), what it
+least 50,000 player-battles (see [`Metrics.md`](../Metrics.md)). Each finding separates what was **counted** (fact), what it
 **suggests** (interpretation) and what is only a **hypothesis** with the check that would test it. Nothing here is causal.
 
 ## 1. The meta is concentrated, but not collapsed

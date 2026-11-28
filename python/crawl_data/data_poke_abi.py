@@ -1,51 +1,33 @@
-import requests
-import pandas as pd
-import time
+"""Crawl PokéAPI abilities per /pokemon entry -> data/raw/pokemon_ability.csv (pokemon_id, abi_id, hidden_abi).
 
-BASE_URL = "https://pokeapi.co/api/v2"
+    python -m python.crawl_data.data_poke_abi                     # every /pokemon entry, incl. alternate forms (ids >= 10001)
+    python -m python.crawl_data.data_poke_abi --ids 6 10034       # small test range (add --to-mysql to load MySQL)
 
-pokemon_abilities = []
+pokemon_id is the PokéAPI /pokemon id, so alternate forms (e.g. charizard-mega-x = 10034) get their own abilities
+(#36). Some new forms have no ability in PokéAPI yet (e.g. zygarde-mega = 10301): no rows, recorded with rows = 0
+in pokemon_ability_progress.csv (calc_master then borrows the default form's abilities). Resumable, retried with backoff, failures in
+pokemon_ability_failures.csv: see python/crawl_data/pokeapi_crawl.py. With --to-mysql the MySQL table
+pokemon_abilities is rebuilt from the full CSV.
+"""
+from __future__ import annotations
 
-# EXTRACT MOVE DATA
-def extract_moves(data):
-    pokemon_id = data["id"]
-    for abi in data["abilities"]:
-        abi_id = int(
-            abi["ability"]["url"]
-            .rstrip("/")
-            .split("/")[-1])
-        hidden = abi["is_hidden"]
+from pathlib import Path
 
-        pokemon_abilities.append({
-            "pokemon_id": pokemon_id,
-            "abi_id": abi_id,
-            "hidden_abi": hidden
-        })
+from python.crawl_data.pokeapi_crawl import ref_id, run_cli
 
-# CRAWL DATA
-def crawl_pokemon_abilities(start_id=1, end_id=1025):
-    for poke_id in range(start_id, end_id + 1):
-        response = requests.get(
-            f"{BASE_URL}/pokemon/{poke_id}/"
-        )
-        if response.status_code == 200:
-            data = response.json()
-            extract_moves(data)
-            print(
-                f"SUCCESS {poke_id} - {data['name']}"
-            )
-        else:
-            print(f"FAILED ID {poke_id}")
-        time.sleep(0.3)
-crawl_pokemon_abilities(1, 1025)
+COLUMNS = ["pokemon_id", "abi_id", "hidden_abi"]
 
-# DATAFRAME
-df_poke_abilities = pd.DataFrame(pokemon_abilities)
-print(df_poke_abilities.head())
 
-# EXPORT CSV
-df_poke_abilities.to_csv("data/raw/pokemon_ability.csv",index=False)
+def extract_abilities(data: dict) -> list[dict]:
+    """Ability rows of one /pokemon response; none when PokéAPI lists no ability (a missing list is a KeyError)."""
+    return [{"pokemon_id": int(data["id"]), "abi_id": ref_id(a["ability"]),
+             "hidden_abi": bool(a["is_hidden"])} for a in data["abilities"]]
 
-# UPLOAD TO SQL
-from python.database.db_connection import engine
-df_poke_abilities.to_sql(name="pokemon_abilities",con=engine,if_exists="replace",index=False)
+
+def main(argv=None) -> int:
+    return run_cli(argv, __doc__, extract_abilities, COLUMNS, Path("data/raw/pokemon_ability.csv"),
+                   "pokemon_abilities")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

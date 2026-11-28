@@ -8,6 +8,7 @@ import {
   STATS,
   type CalcMaster,
   type CalcMove,
+  type CalcRegulation,
   type CalcResult,
   type SideInput,
   type Stats,
@@ -53,9 +54,11 @@ function showError(text: string) {
   $("result").hidden = false;
 }
 
-/** Puts a team member (from a saved team or a team-builder link) on one side; false when the data lacks it. */
-function loadMember(master: CalcMaster, editor: PokemonEditor, member: TeamMember): string[] | null {
-  const { team, notes } = resolveTeam(master, { name: "", members: [member] });
+/** Puts a team member (from a saved team or a team-builder link) on one side, checked against the learnsets of the
+ * selected regulation's game; null when the data or that regulation lacks the form. */
+function loadMember(master: CalcMaster, editor: PokemonEditor, member: TeamMember, reg: CalcRegulation): string[] | null {
+  if (!reg.forms.includes(member.poke_id)) return null;
+  const { team, notes } = resolveTeam(master, { name: "", members: [member] }, reg.version_group);
   if (team.members.length === 0) return null;
   const m = team.members[0];
   editor.load(sideFromMember(master.forms.find((f) => f.poke_id === m.poke_id)!, m), m.moves);
@@ -63,7 +66,8 @@ function loadMember(master: CalcMaster, editor: PokemonEditor, member: TeamMembe
 }
 
 /** "From a saved team" picker at the top of a side; hidden when this browser has no saved team. */
-function savedTeamPicker(root: HTMLElement, master: CalcMaster, editor: PokemonEditor, onLoad: () => void) {
+function savedTeamPicker(root: HTMLElement, master: CalcMaster, editor: PokemonEditor, reg: () => CalcRegulation,
+  onLoad: () => void) {
   const teams = createTeamStore(browserStorage).list();
   if (teams.every((t) => t.members.length === 0)) return;
   const pick = el("select");
@@ -83,11 +87,26 @@ function savedTeamPicker(root: HTMLElement, master: CalcMaster, editor: PokemonE
     e.stopPropagation();   // not an edit of the side itself
     const m = members.get(pick.value);
     if (!m) return;
-    const notes = loadMember(master, editor, m);
-    teamNote.textContent = notes === null ? "This Pokémon is not in the calculator data." : notes.join(" ");
+    const notes = loadMember(master, editor, m, reg());
+    teamNote.textContent = notes === null ? notInData(reg()) : notes.join(" ");
     onLoad();
   });
   root.insertBefore(el("div", { className: "filters" }, el("label", {}, "From a saved team", pick)), root.children[1] ?? null);
+}
+
+const notInData = (reg: CalcRegulation) =>
+  `This Pokémon is not in the calculator data for ${reg.label} (not seen in its team usage): pick another regulation.`;
+
+/** Regulation picker (#37), newest first: it sets the forms listed and the game whose learnsets are used. */
+function regulationPicker(master: CalcMaster, onPick: (reg: CalcRegulation) => void) {
+  const pick = el("select");
+  options(pick, master.regulations.map((r) => [r.id, r.label]), master.regulations[0].id);
+  pick.addEventListener("change", (e) => {
+    e.stopPropagation();   // not an edit of a side
+    onPick(master.regulations.find((r) => r.id === pick.value) ?? master.regulations[0]);
+  });
+  $("calc").prepend(el("div", { className: "filters calc-regulation" }, el("label", {}, "Regulation", pick),
+    el("span", { className: "muted", textContent: "Pokémon seen in its team usage; learnsets of its game (PokéAPI)." })));
 }
 
 async function main() {
@@ -114,11 +133,21 @@ async function main() {
       showError(`The engine refused this input: ${pythonErrorMessage(e)}`);
     }
   };
-  const attacker = createPokemonEditor($("attacker"), master, { preferred: DEFAULTS.attacker, moveSlots: 1, onChange: calculate });
-  const defender = createPokemonEditor($("defender"), master, { preferred: DEFAULTS.defender, moveSlots: 0, onChange: calculate });
+  let reg = master.regulations[0];
+  const scoped = { versionGroup: reg.version_group, onChange: calculate };
+  const attacker = createPokemonEditor($("attacker"), master, { ...scoped, preferred: DEFAULTS.attacker, moveSlots: 1 });
+  const defender = createPokemonEditor($("defender"), master, { ...scoped, preferred: DEFAULTS.defender, moveSlots: 0 });
   const editors: Record<CalcSide, PokemonEditor> = { attacker, defender };
-  savedTeamPicker($("attacker"), master, attacker, calculate);
-  savedTeamPicker($("defender"), master, defender, calculate);
+  const scope = () => Object.values(editors).forEach((ed) => ed.setScope(reg.version_group, reg.forms));
+  scope();
+  regulationPicker(master, (r) => {
+    reg = r;
+    scope();
+    teamNote.textContent = "";
+    calculate();
+  });
+  savedTeamPicker($("attacker"), master, attacker, () => reg, calculate);
+  savedTeamPicker($("defender"), master, defender, () => reg, calculate);
 
   // A team-builder link (#attacker=… / #defender=…) puts that member on its side.
   const openLink = () => {
@@ -132,8 +161,8 @@ async function main() {
     }
     if (!link) return;
     history.replaceState(null, "", location.pathname + location.search);
-    const notes = loadMember(master, editors[link.side], link.member);
-    teamNote.textContent = notes === null ? "This Pokémon is not in the calculator data."
+    const notes = loadMember(master, editors[link.side], link.member, reg);
+    teamNote.textContent = notes === null ? notInData(reg)
       : [`Team member loaded as ${link.side}.`, ...notes].join(" ");
     calculate();
   };

@@ -1,4 +1,4 @@
-"""Partner frequency and lift between species on the same team (definitions: METRICS.md).
+"""Partner frequency and lift between species on the same team (definitions: Metrics.md).
 
     python -m python.analytics.partner_stats --output-dir data/output --partners Incineroar
 
